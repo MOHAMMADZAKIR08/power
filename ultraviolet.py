@@ -2111,12 +2111,17 @@ def dashboard_page():
     transactions = st.session_state.transactions.copy()
     expenditures = st.session_state.expenditures.copy()
     
-    # Ensure Date columns are properly formatted
+    # Ensure Date columns are properly formatted - FIXED VERSION
     try:
-        if 'Date' in transactions.columns:
+        if 'Date' in transactions.columns and not transactions.empty:
+            # Convert to datetime, coerce errors to NaT
             transactions['Date'] = pd.to_datetime(transactions['Date'], errors='coerce')
-        if 'Date' in expenditures.columns:
+            # Drop rows with invalid dates
+            transactions = transactions[transactions['Date'].notna()]
+            
+        if 'Date' in expenditures.columns and not expenditures.empty:
             expenditures['Date'] = pd.to_datetime(expenditures['Date'], errors='coerce')
+            expenditures = expenditures[expenditures['Date'].notna()]
     except Exception as e:
         st.error(f"Error processing date columns: {e}")
         return
@@ -2126,27 +2131,36 @@ def dashboard_page():
     
     # Calculate key metrics with proper error handling
     try:
-        # Filter for today's transactions
-        today_mask = transactions['Date'].dt.date == today
-        type_mask = transactions['Type'] == 'Sale'
-        
-        today_sales = transactions[today_mask & type_mask]['Selling_Price'].sum()
-        today_profit = transactions[today_mask]['Profit'].sum()
+        # Filter for today's transactions - FIXED DATE FILTERING
+        if not transactions.empty and 'Date' in transactions.columns:
+            today_mask = transactions['Date'].dt.date == today
+            type_mask = transactions['Type'] == 'Sale'
+            
+            today_sales = transactions[today_mask & type_mask]['Selling_Price'].sum()
+            today_profit = transactions[today_mask]['Profit'].sum()
+        else:
+            today_sales = today_profit = 0
         
         # Filter for today's expenditures
-        today_exp_mask = expenditures['Date'].dt.date == today
-        today_expenditure = expenditures[today_exp_mask]['Amount'].sum()
+        if not expenditures.empty and 'Date' in expenditures.columns:
+            today_exp_mask = expenditures['Date'].dt.date == today
+            today_expenditure = expenditures[today_exp_mask]['Amount'].sum()
+        else:
+            today_expenditure = 0
         
         # Overall metrics
-        total_sales = transactions['Selling_Price'].sum()
-        total_profit = transactions['Profit'].sum()
-        total_expenditure = expenditures['Amount'].sum()
-        pending_payments = transactions['Left_Amount'].sum()
+        total_sales = transactions['Selling_Price'].sum() if not transactions.empty else 0
+        total_profit = transactions['Profit'].sum() if not transactions.empty else 0
+        total_expenditure = expenditures['Amount'].sum() if not expenditures.empty else 0
+        pending_payments = transactions['Left_Amount'].sum() if not transactions.empty else 0
         
         # Category breakdown
-        mobile_sales = transactions[transactions['Category'] == 'Mobile']['Selling_Price'].sum()
-        accessories_sales = transactions[transactions['Category'] == 'Accessories']['Selling_Price'].sum()
-        service_sales = transactions[transactions['Category'] == 'Repair']['Selling_Price'].sum()
+        if not transactions.empty:
+            mobile_sales = transactions[transactions['Category'] == 'Mobile']['Selling_Price'].sum()
+            accessories_sales = transactions[transactions['Category'] == 'Accessories']['Selling_Price'].sum()
+            service_sales = transactions[transactions['Category'] == 'Repair']['Selling_Price'].sum()
+        else:
+            mobile_sales = accessories_sales = service_sales = 0
         
     except Exception as e:
         st.error(f"Error calculating metrics: {e}")
@@ -2249,7 +2263,7 @@ def dashboard_page():
     st.subheader("Daily Profit & Loss Analysis")
     if not transactions.empty and 'Date' in transactions.columns and 'Profit' in transactions.columns:
         try:
-            # Group by date and sum profits
+            # Group by date and sum profits - FIXED GROUPBY
             daily_profit = transactions.groupby(transactions['Date'].dt.date)['Profit'].sum()
             if not daily_profit.empty:
                 st.line_chart(daily_profit)
@@ -2300,8 +2314,6 @@ def dashboard_page():
             )
         except Exception as e:
             st.error(f"Error generating CSV: {e}")
-        
-
 def customer_balance_page():
     st.markdown('<div class="section-title">👤 Customer Balances</div>', unsafe_allow_html=True)
     
@@ -2766,4 +2778,5 @@ def main():
 
 
 if __name__ == "__main__":
+
     main()
