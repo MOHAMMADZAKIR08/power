@@ -1319,7 +1319,7 @@ def create_payment_pdf(payment_data):
     return pdf.output(dest='S').encode('latin1')
 
 def create_dashboard_report(period='daily'):
-    """Create a comprehensive dashboard report PDF with period filter"""
+    """Create a comprehensive dashboard report PDF with period filter - FIXED DATE HANDLING"""
     pdf = FPDF()
     pdf.add_page()
     
@@ -1342,61 +1342,170 @@ def create_dashboard_report(period='daily'):
     pdf.ln(5)
     
     # Calculate key metrics based on period
-    transactions = st.session_state.transactions
-    expenditures = st.session_state.expenditures
+    transactions = st.session_state.transactions.copy()
+    expenditures = st.session_state.expenditures.copy()
+    
+    # Ensure date columns are properly formatted - FIXED DATE HANDLING
+    try:
+        if not transactions.empty and 'Date' in transactions.columns:
+            transactions['Date'] = pd.to_datetime(transactions['Date'], errors='coerce')
+            transactions = transactions.dropna(subset=['Date'])
+            
+        if not expenditures.empty and 'Date' in expenditures.columns:
+            expenditures['Date'] = pd.to_datetime(expenditures['Date'], errors='coerce')
+            expenditures = expenditures.dropna(subset=['Date'])
+    except Exception as e:
+        pdf.cell(0, 6, f"Error processing dates: {str(e)}", 0, 1, 'L')
+        return pdf.output(dest='S').encode('latin1')
     
     today = datetime.now().date()
     
-    # Filter data based on period
-    if period == 'daily':
-        filtered_transactions = transactions[transactions['Date'].dt.date == today]
-        filtered_expenditures = expenditures[expenditures['Date'].dt.date == today]
-        period_text = f"for {today.strftime('%Y-%m-%d')}"
-    elif period == 'weekly':
-        start_of_week = today - timedelta(days=today.weekday())
-        end_of_week = start_of_week + timedelta(days=6)
-        filtered_transactions = transactions[(transactions['Date'].dt.date >= start_of_week) & 
-                                           (transactions['Date'].dt.date <= end_of_week)]
-        filtered_expenditures = expenditures[(expenditures['Date'].dt.date >= start_of_week) & 
-                                           (expenditures['Date'].dt.date <= end_of_week)]
-        period_text = f"for week {start_of_week.strftime('%Y-%m-%d')} to {end_of_week.strftime('%Y-%m-%d')}"
-    elif period == 'monthly':
-        start_of_month = today.replace(day=1)
-        end_of_month = today.replace(day=calendar.monthrange(today.year, today.month)[1])
-        filtered_transactions = transactions[(transactions['Date'].dt.date >= start_of_month) & 
-                                           (transactions['Date'].dt.date <= end_of_month)]
-        filtered_expenditures = expenditures[(expenditures['Date'].dt.date >= start_of_month) & 
-                                           (expenditures['Date'].dt.date <= end_of_month)]
-        period_text = f"for {today.strftime('%B %Y')}"
-    elif period == 'yearly':
-        start_of_year = today.replace(month=1, day=1)
-        end_of_year = today.replace(month=12, day=31)
-        filtered_transactions = transactions[(transactions['Date'].dt.date >= start_of_year) & 
-                                           (transactions['Date'].dt.date <= end_of_year)]
-        filtered_expenditures = expenditures[(expenditures['Date'].dt.date >= start_of_year) & 
-                                           (expenditures['Date'].dt.date <= end_of_year)]
-        period_text = f"for year {today.year}"
-    else:
-        # All time
+    # Filter data based on period - FIXED FILTERING LOGIC
+    try:
+        if period == 'daily':
+            # Convert both sides to date for proper comparison
+            if not transactions.empty:
+                filtered_transactions = transactions[
+                    pd.to_datetime(transactions['Date']).dt.date == today
+                ]
+            else:
+                filtered_transactions = pd.DataFrame()
+                
+            if not expenditures.empty:
+                filtered_expenditures = expenditures[
+                    pd.to_datetime(expenditures['Date']).dt.date == today
+                ]
+            else:
+                filtered_expenditures = pd.DataFrame()
+                
+            period_text = f"for {today.strftime('%Y-%m-%d')}"
+            
+        elif period == 'weekly':
+            start_of_week = today - timedelta(days=today.weekday())
+            end_of_week = start_of_week + timedelta(days=6)
+            
+            if not transactions.empty:
+                filtered_transactions = transactions[
+                    (pd.to_datetime(transactions['Date']).dt.date >= start_of_week) & 
+                    (pd.to_datetime(transactions['Date']).dt.date <= end_of_week)
+                ]
+            else:
+                filtered_transactions = pd.DataFrame()
+                
+            if not expenditures.empty:
+                filtered_expenditures = expenditures[
+                    (pd.to_datetime(expenditures['Date']).dt.date >= start_of_week) & 
+                    (pd.to_datetime(expenditures['Date']).dt.date <= end_of_week)
+                ]
+            else:
+                filtered_expenditures = pd.DataFrame()
+                
+            period_text = f"for week {start_of_week.strftime('%Y-%m-%d')} to {end_of_week.strftime('%Y-%m-%d')}"
+            
+        elif period == 'monthly':
+            start_of_month = today.replace(day=1)
+            end_of_month = today.replace(day=calendar.monthrange(today.year, today.month)[1])
+            
+            if not transactions.empty:
+                filtered_transactions = transactions[
+                    (pd.to_datetime(transactions['Date']).dt.date >= start_of_month) & 
+                    (pd.to_datetime(transactions['Date']).dt.date <= end_of_month)
+                ]
+            else:
+                filtered_transactions = pd.DataFrame()
+                
+            if not expenditures.empty:
+                filtered_expenditures = expenditures[
+                    (pd.to_datetime(expenditures['Date']).dt.date >= start_of_month) & 
+                    (pd.to_datetime(expenditures['Date']).dt.date <= end_of_month)
+                ]
+            else:
+                filtered_expenditures = pd.DataFrame()
+                
+            period_text = f"for {today.strftime('%B %Y')}"
+            
+        elif period == 'yearly':
+            start_of_year = today.replace(month=1, day=1)
+            end_of_year = today.replace(month=12, day=31)
+            
+            if not transactions.empty:
+                filtered_transactions = transactions[
+                    (pd.to_datetime(transactions['Date']).dt.date >= start_of_year) & 
+                    (pd.to_datetime(transactions['Date']).dt.date <= end_of_year)
+                ]
+            else:
+                filtered_transactions = pd.DataFrame()
+                
+            if not expenditures.empty:
+                filtered_expenditures = expenditures[
+                    (pd.to_datetime(expenditures['Date']).dt.date >= start_of_year) & 
+                    (pd.to_datetime(expenditures['Date']).dt.date <= end_of_year)
+                ]
+            else:
+                filtered_expenditures = pd.DataFrame()
+                
+            period_text = f"for year {today.year}"
+        else:
+            # All time
+            filtered_transactions = transactions
+            filtered_expenditures = expenditures
+            period_text = "for all time"
+            
+    except Exception as e:
+        pdf.cell(0, 6, f"Error filtering data: {str(e)}", 0, 1, 'L')
+        # Fallback to all data
         filtered_transactions = transactions
         filtered_expenditures = expenditures
-        period_text = "for all time"
+        period_text = "for all time (filter error)"
     
-    # Today's metrics
-    period_sales = filtered_transactions[filtered_transactions['Type'] == 'Sale']['Selling_Price'].sum()
-    period_profit = filtered_transactions['Profit'].sum()
-    period_expenditure = filtered_expenditures['Amount'].sum()
-    
-    # Overall metrics
-    total_sales = transactions['Selling_Price'].sum()
-    total_profit = transactions['Profit'].sum()
-    total_expenditure = expenditures['Amount'].sum()
-    pending_payments = transactions['Left_Amount'].sum()
-    
-    # Category breakdown
-    mobile_sales = filtered_transactions[filtered_transactions['Category'] == 'Mobile']['Selling_Price'].sum()
-    accessories_sales = filtered_transactions[filtered_transactions['Category'] == 'Accessories']['Selling_Price'].sum()
-    service_sales = filtered_transactions[filtered_transactions['Category'] == 'Repair']['Selling_Price'].sum()
+    # Calculate metrics with safe handling
+    try:
+        # Period metrics
+        period_sales = 0
+        period_profit = 0
+        period_expenditure = 0
+        
+        if not filtered_transactions.empty:
+            sale_transactions = filtered_transactions[filtered_transactions['Type'] == 'Sale']
+            if not sale_transactions.empty and 'Selling_Price' in sale_transactions.columns:
+                period_sales = sale_transactions['Selling_Price'].sum()
+            
+            if 'Profit' in filtered_transactions.columns:
+                period_profit = filtered_transactions['Profit'].sum()
+        
+        if not filtered_expenditures.empty and 'Amount' in filtered_expenditures.columns:
+            period_expenditure = filtered_expenditures['Amount'].sum()
+        
+        # Overall metrics
+        total_sales = transactions['Selling_Price'].sum() if not transactions.empty and 'Selling_Price' in transactions.columns else 0
+        total_profit = transactions['Profit'].sum() if not transactions.empty and 'Profit' in transactions.columns else 0
+        total_expenditure = expenditures['Amount'].sum() if not expenditures.empty and 'Amount' in expenditures.columns else 0
+        pending_payments = transactions['Left_Amount'].sum() if not transactions.empty and 'Left_Amount' in transactions.columns else 0
+        
+        # Category breakdown
+        mobile_sales = 0
+        accessories_sales = 0
+        service_sales = 0
+        
+        if not filtered_transactions.empty:
+            if 'Category' in filtered_transactions.columns and 'Selling_Price' in filtered_transactions.columns:
+                mobile_mask = filtered_transactions['Category'] == 'Mobile'
+                accessories_mask = filtered_transactions['Category'] == 'Accessories'
+                service_mask = filtered_transactions['Category'] == 'Repair'
+                
+                if mobile_mask.any():
+                    mobile_sales = filtered_transactions.loc[mobile_mask, 'Selling_Price'].sum()
+                if accessories_mask.any():
+                    accessories_sales = filtered_transactions.loc[accessories_mask, 'Selling_Price'].sum()
+                if service_mask.any():
+                    service_sales = filtered_transactions.loc[service_mask, 'Selling_Price'].sum()
+                    
+    except Exception as e:
+        pdf.cell(0, 6, f"Error calculating metrics: {str(e)}", 0, 1, 'L')
+        # Set default values
+        period_sales = period_profit = period_expenditure = 0
+        total_sales = total_profit = total_expenditure = pending_payments = 0
+        mobile_sales = accessories_sales = service_sales = 0
     
     # Period Summary
     pdf.set_font("Arial", 'B', 12)
@@ -1454,7 +1563,6 @@ def create_dashboard_report(period='daily'):
     pdf.cell(0, 6, "Report generated by AHSAN MOBILE SHOP AND EASYPAISA CENTER LORALAI", 0, 1, 'C')
     
     return pdf.output(dest='S').encode('latin1')
-
 # ==============================
 # EDIT/DELETE FUNCTIONS
 # ==============================
@@ -2807,5 +2915,6 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
 
