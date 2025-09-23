@@ -659,6 +659,7 @@ st.markdown("""
 # DATA PERSISTENCE FUNCTIONS
 # ==============================
 
+
 def load_data():
     """Load data from persistent storage or initialize if not exists"""
     try:
@@ -738,6 +739,7 @@ def load_data():
         st.session_state.customer_advances = pd.DataFrame(columns=[
             'Customer_Name', 'Phone', 'CNIC', 'Advance_Balance'
         ])
+
 
 def save_data():
     """Save data to persistent storage"""
@@ -2805,4 +2807,5 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
