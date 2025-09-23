@@ -658,6 +658,7 @@ st.markdown("""
 # ==============================
 # DATA PERSISTENCE FUNCTIONS
 # ==============================
+
 def load_data():
     """Load data from persistent storage or initialize if not exists"""
     try:
@@ -704,18 +705,18 @@ def load_data():
         
         # Convert date columns to datetime for proper filtering - FIXED DATE HANDLING
         if not st.session_state.transactions.empty and 'Date' in st.session_state.transactions.columns:
-            # Ensure dates are in proper format
+            # Ensure dates are in proper format and handle errors
             st.session_state.transactions['Date'] = pd.to_datetime(st.session_state.transactions['Date'], errors='coerce')
-            # Remove any invalid dates
-            st.session_state.transactions = st.session_state.transactions[st.session_state.transactions['Date'].notna()]
+            # Remove any invalid dates and reset index
+            st.session_state.transactions = st.session_state.transactions.dropna(subset=['Date']).reset_index(drop=True)
             
         if not st.session_state.expenditures.empty and 'Date' in st.session_state.expenditures.columns:
             st.session_state.expenditures['Date'] = pd.to_datetime(st.session_state.expenditures['Date'], errors='coerce')
-            st.session_state.expenditures = st.session_state.expenditures[st.session_state.expenditures['Date'].notna()]
+            st.session_state.expenditures = st.session_state.expenditures.dropna(subset=['Date']).reset_index(drop=True)
             
         if not st.session_state.payments.empty and 'Date' in st.session_state.payments.columns:
             st.session_state.payments['Date'] = pd.to_datetime(st.session_state.payments['Date'], errors='coerce')
-            st.session_state.payments = st.session_state.payments[st.session_state.payments['Date'].notna()]
+            st.session_state.payments = st.session_state.payments.dropna(subset=['Date']).reset_index(drop=True)
             
     except Exception as e:
         st.error(f"Error loading data: {e}")
@@ -2114,14 +2115,16 @@ def dashboard_page():
     # Ensure Date columns are properly formatted - FIXED VERSION
     try:
         if 'Date' in transactions.columns and not transactions.empty:
-            # Convert to datetime, coerce errors to NaT
+            # Convert to datetime, coerce errors to NaT, then drop NaT values
             transactions['Date'] = pd.to_datetime(transactions['Date'], errors='coerce')
-            # Drop rows with invalid dates
-            transactions = transactions[transactions['Date'].notna()]
+            # Remove rows with invalid dates
+            valid_dates_mask = transactions['Date'].notna()
+            transactions = transactions[valid_dates_mask].copy()
             
         if 'Date' in expenditures.columns and not expenditures.empty:
             expenditures['Date'] = pd.to_datetime(expenditures['Date'], errors='coerce')
-            expenditures = expenditures[expenditures['Date'].notna()]
+            valid_dates_mask = expenditures['Date'].notna()
+            expenditures = expenditures[valid_dates_mask].copy()
     except Exception as e:
         st.error(f"Error processing date columns: {e}")
         return
@@ -2131,36 +2134,53 @@ def dashboard_page():
     
     # Calculate key metrics with proper error handling
     try:
-        # Filter for today's transactions - FIXED DATE FILTERING
+        # Initialize metrics with default values
+        today_sales = 0
+        today_profit = 0
+        today_expenditure = 0
+        
+        # Filter for today's transactions - FIXED: Check if Date column exists and has datetime values
         if not transactions.empty and 'Date' in transactions.columns:
-            today_mask = transactions['Date'].dt.date == today
-            type_mask = transactions['Type'] == 'Sale'
-            
-            today_sales = transactions[today_mask & type_mask]['Selling_Price'].sum()
-            today_profit = transactions[today_mask]['Profit'].sum()
-        else:
-            today_sales = today_profit = 0
+            # Ensure we have datetime type before using .dt accessor
+            if pd.api.types.is_datetime64_any_dtype(transactions['Date']):
+                today_mask = transactions['Date'].dt.date == today
+                type_mask = transactions['Type'] == 'Sale'
+                
+                # Check if we have any matching transactions
+                if today_mask.any():
+                    today_sales = transactions.loc[today_mask & type_mask, 'Selling_Price'].sum()
+                    today_profit = transactions.loc[today_mask, 'Profit'].sum()
         
         # Filter for today's expenditures
         if not expenditures.empty and 'Date' in expenditures.columns:
-            today_exp_mask = expenditures['Date'].dt.date == today
-            today_expenditure = expenditures[today_exp_mask]['Amount'].sum()
-        else:
-            today_expenditure = 0
+            if pd.api.types.is_datetime64_any_dtype(expenditures['Date']):
+                today_exp_mask = expenditures['Date'].dt.date == today
+                if today_exp_mask.any():
+                    today_expenditure = expenditures.loc[today_exp_mask, 'Amount'].sum()
         
-        # Overall metrics
+        # Overall metrics (these don't need date filtering)
         total_sales = transactions['Selling_Price'].sum() if not transactions.empty else 0
         total_profit = transactions['Profit'].sum() if not transactions.empty else 0
         total_expenditure = expenditures['Amount'].sum() if not expenditures.empty else 0
         pending_payments = transactions['Left_Amount'].sum() if not transactions.empty else 0
         
-        # Category breakdown
+        # Category breakdown with safe handling
+        mobile_sales = 0
+        accessories_sales = 0
+        service_sales = 0
+        
         if not transactions.empty:
-            mobile_sales = transactions[transactions['Category'] == 'Mobile']['Selling_Price'].sum()
-            accessories_sales = transactions[transactions['Category'] == 'Accessories']['Selling_Price'].sum()
-            service_sales = transactions[transactions['Category'] == 'Repair']['Selling_Price'].sum()
-        else:
-            mobile_sales = accessories_sales = service_sales = 0
+            if 'Category' in transactions.columns:
+                mobile_mask = transactions['Category'] == 'Mobile'
+                accessories_mask = transactions['Category'] == 'Accessories'
+                service_mask = transactions['Category'] == 'Repair'
+                
+                if mobile_mask.any():
+                    mobile_sales = transactions.loc[mobile_mask, 'Selling_Price'].sum()
+                if accessories_mask.any():
+                    accessories_sales = transactions.loc[accessories_mask, 'Selling_Price'].sum()
+                if service_mask.any():
+                    service_sales = transactions.loc[service_mask, 'Selling_Price'].sum()
         
     except Exception as e:
         st.error(f"Error calculating metrics: {e}")
@@ -2263,12 +2283,16 @@ def dashboard_page():
     st.subheader("Daily Profit & Loss Analysis")
     if not transactions.empty and 'Date' in transactions.columns and 'Profit' in transactions.columns:
         try:
-            # Group by date and sum profits - FIXED GROUPBY
-            daily_profit = transactions.groupby(transactions['Date'].dt.date)['Profit'].sum()
-            if not daily_profit.empty:
-                st.line_chart(daily_profit)
+            # Check if Date column is datetime before using .dt accessor
+            if pd.api.types.is_datetime64_any_dtype(transactions['Date']):
+                # Group by date and sum profits
+                daily_profit = transactions.groupby(transactions['Date'].dt.date)['Profit'].sum()
+                if not daily_profit.empty:
+                    st.line_chart(daily_profit)
+                else:
+                    st.info("No daily profit data available for visualization.")
             else:
-                st.info("No daily profit data available for visualization.")
+                st.info("Date column is not in datetime format for charting.")
         except Exception as e:
             st.error(f"Error creating profit chart: {e}")
     else:
@@ -2314,6 +2338,7 @@ def dashboard_page():
             )
         except Exception as e:
             st.error(f"Error generating CSV: {e}")
+
 def customer_balance_page():
     st.markdown('<div class="section-title">👤 Customer Balances</div>', unsafe_allow_html=True)
     
@@ -2780,3 +2805,4 @@ def main():
 if __name__ == "__main__":
 
     main()
+
