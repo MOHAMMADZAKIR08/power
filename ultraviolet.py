@@ -74,25 +74,6 @@ def load_credentials():
         print("=" * 50)
             
         return auth_config
-    except Exception as e:
-        # If there's any error, create a new config with fixed values
-        auth_config = {
-            'username': "bond007",
-            'password_hash': hash_password("bond007"),
-            'reset_code_hash': hash_password("bond#")
-        }
-        save_credentials(auth_config)
-        
-        # Display generated credentials in console
-        print("=" * 50)
-        print("ERROR RECOVERY: USING FIXED CREDENTIALS")
-        print("=" * 50)
-        print(f"USERNAME: bond007")
-        print(f"PASSWORD: bond007") 
-        print(f"RESET CODE: bond#")
-        print("=" * 50)
-        
-        return auth_config
 
 def save_credentials(auth_config):
     """Save credentials to secure storage"""
@@ -656,17 +637,45 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================
-# DATA PERSISTENCE FUNCTIONS
+# DATA PERSISTENCE FUNCTIONS - FIXED VERSION
 # ==============================
 
+def convert_dates_to_strings(df):
+    """Convert date columns to string format for safe storage"""
+    df_copy = df.copy()
+    for col in df_copy.columns:
+        if 'Date' in col:
+            # Convert datetime to string format
+            df_copy[col] = df_copy[col].apply(
+                lambda x: x.strftime('%Y-%m-%d') if hasattr(x, 'strftime') else str(x)
+            )
+    return df_copy
+
+def convert_strings_to_dates(df):
+    """Convert string dates back to datetime objects"""
+    df_copy = df.copy()
+    for col in df_copy.columns:
+        if 'Date' in col:
+            # Convert string to datetime
+            df_copy[col] = pd.to_datetime(df_copy[col], errors='coerce')
+    return df_copy
 
 def load_data():
-    """Load data from persistent storage or initialize if not exists"""
+    """Load data from persistent storage or initialize if not exists - FIXED VERSION"""
     try:
         # Try to load from file first
         if os.path.exists('mobile_master_data.pkl'):
             with open('mobile_master_data.pkl', 'rb') as f:
                 data = pickle.load(f)
+            
+            # Convert string dates back to datetime objects
+            if 'transactions' in data and not data['transactions'].empty:
+                data['transactions'] = convert_strings_to_dates(data['transactions'])
+            if 'expenditures' in data and not data['expenditures'].empty:
+                data['expenditures'] = convert_strings_to_dates(data['expenditures'])
+            if 'payments' in data and not data['payments'].empty:
+                data['payments'] = convert_strings_to_dates(data['payments'])
+            
             st.session_state.transactions = data.get('transactions', pd.DataFrame(columns=[
                 'Date', 'Time', 'Type', 'Category', 'Model', 'Brand', 'Item', 
                 'Color', 'Storage', 'Quantity', 'Selling_Price', 'Cost_Price', 
@@ -686,84 +695,57 @@ def load_data():
             ]))
         else:
             # Initialize empty DataFrames
-            st.session_state.transactions = pd.DataFrame(columns=[
-                'Date', 'Time', 'Type', 'Category', 'Model', 'Brand', 'Item', 
-                'Color', 'Storage', 'Quantity', 'Selling_Price', 'Cost_Price', 
-                'Profit', 'Paid_Amount', 'Left_Amount', 'Customer_Name',
-                'Phone', 'CNIC', 'Address', 'Warranty', 'Compatible_With',
-                'Transaction_ID', 'Status', 'Advance_Balance', 'IMEI'
-            ])
-            st.session_state.expenditures = pd.DataFrame(columns=[
-                'Date', 'Time', 'Category', 'Amount', 'Description'
-            ])
-            st.session_state.payments = pd.DataFrame(columns=[
-                'Date', 'Time', 'Customer_Name', 'Phone', 'CNIC', 
-                'Amount', 'Transaction_ID', 'Payment_Type', 'Notes', 'Is_Advance'
-            ])
-            st.session_state.customer_advances = pd.DataFrame(columns=[
-                'Customer_Name', 'Phone', 'CNIC', 'Advance_Balance'
-            ])
-        
-        # Convert date columns to datetime for proper filtering - FIXED DATE HANDLING
-        if not st.session_state.transactions.empty and 'Date' in st.session_state.transactions.columns:
-            # Ensure dates are in proper format and handle errors
-            st.session_state.transactions['Date'] = pd.to_datetime(st.session_state.transactions['Date'], errors='coerce')
-            # Remove any invalid dates and reset index
-            st.session_state.transactions = st.session_state.transactions.dropna(subset=['Date']).reset_index(drop=True)
-            
-        if not st.session_state.expenditures.empty and 'Date' in st.session_state.expenditures.columns:
-            st.session_state.expenditures['Date'] = pd.to_datetime(st.session_state.expenditures['Date'], errors='coerce')
-            st.session_state.expenditures = st.session_state.expenditures.dropna(subset=['Date']).reset_index(drop=True)
-            
-        if not st.session_state.payments.empty and 'Date' in st.session_state.payments.columns:
-            st.session_state.payments['Date'] = pd.to_datetime(st.session_state.payments['Date'], errors='coerce')
-            st.session_state.payments = st.session_state.payments.dropna(subset=['Date']).reset_index(drop=True)
+            initialize_empty_data()
             
     except Exception as e:
         st.error(f"Error loading data: {e}")
         # Reset to empty DataFrames if there's an error
-        st.session_state.transactions = pd.DataFrame(columns=[
-            'Date', 'Time', 'Type', 'Category', 'Model', 'Brand', 'Item', 
-            'Color', 'Storage', 'Quantity', 'Selling_Price', 'Cost_Price', 
-            'Profit', 'Paid_Amount', 'Left_Amount', 'Customer_Name',
-            'Phone', 'CNIC', 'Address', 'Warranty', 'Compatible_With',
-            'Transaction_ID', 'Status', 'Advance_Balance', 'IMEI'
-        ])
-        st.session_state.expenditures = pd.DataFrame(columns=[
-            'Date', 'Time', 'Category', 'Amount', 'Description'
-        ])
-        st.session_state.payments = pd.DataFrame(columns=[
-            'Date', 'Time', 'Customer_Name', 'Phone', 'CNIC', 
-            'Amount', 'Transaction_ID', 'Payment_Type', 'Notes', 'Is_Advance'
-        ])
-        st.session_state.customer_advances = pd.DataFrame(columns=[
-            'Customer_Name', 'Phone', 'CNIC', 'Advance_Balance'
-        ])
+        initialize_empty_data()
 
+def initialize_empty_data():
+    """Initialize empty DataFrames for all data types"""
+    st.session_state.transactions = pd.DataFrame(columns=[
+        'Date', 'Time', 'Type', 'Category', 'Model', 'Brand', 'Item', 
+        'Color', 'Storage', 'Quantity', 'Selling_Price', 'Cost_Price', 
+        'Profit', 'Paid_Amount', 'Left_Amount', 'Customer_Name',
+        'Phone', 'CNIC', 'Address', 'Warranty', 'Compatible_With',
+        'Transaction_ID', 'Status', 'Advance_Balance', 'IMEI'
+    ])
+    st.session_state.expenditures = pd.DataFrame(columns=[
+        'Date', 'Time', 'Category', 'Amount', 'Description'
+    ])
+    st.session_state.payments = pd.DataFrame(columns=[
+        'Date', 'Time', 'Customer_Name', 'Phone', 'CNIC', 
+        'Amount', 'Transaction_ID', 'Payment_Type', 'Notes', 'Is_Advance'
+    ])
+    st.session_state.customer_advances = pd.DataFrame(columns=[
+        'Customer_Name', 'Phone', 'CNIC', 'Advance_Balance'
+    ])
 
 def save_data():
-    """Save data to persistent storage"""
+    """Save data to persistent storage - FIXED VERSION"""
     try:
-        # Ensure date columns are in proper format before saving
-        if not st.session_state.transactions.empty and 'Date' in st.session_state.transactions.columns:
-            st.session_state.transactions['Date'] = pd.to_datetime(st.session_state.transactions['Date'], errors='coerce')
-            
-        if not st.session_state.expenditures.empty and 'Date' in st.session_state.expenditures.columns:
-            st.session_state.expenditures['Date'] = pd.to_datetime(st.session_state.expenditures['Date'], errors='coerce')
-            
-        if not st.session_state.payments.empty and 'Date' in st.session_state.payments.columns:
-            st.session_state.payments['Date'] = pd.to_datetime(st.session_state.payments['Date'], errors='coerce')
-            
+        # Convert dates to strings for safe storage
+        transactions_to_save = convert_dates_to_strings(st.session_state.transactions) if not st.session_state.transactions.empty else st.session_state.transactions
+        expenditures_to_save = convert_dates_to_strings(st.session_state.expenditures) if not st.session_state.expenditures.empty else st.session_state.expenditures
+        payments_to_save = convert_dates_to_strings(st.session_state.payments) if not st.session_state.payments.empty else st.session_state.payments
+        
         # Save all data to file
         data = {
-            'transactions': st.session_state.transactions,
-            'expenditures': st.session_state.expenditures,
-            'payments': st.session_state.payments,
+            'transactions': transactions_to_save,
+            'expenditures': expenditures_to_save,
+            'payments': payments_to_save,
             'customer_advances': st.session_state.customer_advances
         }
         
         with open('mobile_master_data.pkl', 'wb') as f:
             pickle.dump(data, f)
+            
+        # Also create a backup with timestamp
+        backup_filename = f"backup_mobile_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pkl"
+        with open(backup_filename, 'wb') as f:
+            pickle.dump(data, f)
+            
     except Exception as e:
         st.error(f"Error saving data: {e}")
 
@@ -1563,6 +1545,7 @@ def create_dashboard_report(period='daily'):
     pdf.cell(0, 6, "Report generated by AHSAN MOBILE SHOP AND EASYPAISA CENTER LORALAI", 0, 1, 'C')
     
     return pdf.output(dest='S').encode('latin1')
+
 # ==============================
 # EDIT/DELETE FUNCTIONS
 # ==============================
@@ -2913,8 +2896,4 @@ def main():
 
 
 if __name__ == "__main__":
-
     main()
-
-
-
