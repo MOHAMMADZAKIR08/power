@@ -12,6 +12,243 @@ import pickle
 import calendar
 import hashlib
 import base64
+import shutil
+
+# ==============================
+# ENHANCED DATA PERSISTENCE SYSTEM
+# ==============================
+
+def create_backup():
+    """Create a backup of the data file"""
+    try:
+        if os.path.exists('mobile_master_data.pkl'):
+            backup_dir = "backups"
+            os.makedirs(backup_dir, exist_ok=True)
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            backup_file = os.path.join(backup_dir, f"backup_mobile_data_{timestamp}.pkl")
+            shutil.copy2('mobile_master_data.pkl', backup_file)
+            
+            # Keep only last 10 backups to avoid disk space issues
+            backup_files = sorted([f for f in os.listdir(backup_dir) if f.startswith('backup_mobile_data_')])
+            if len(backup_files) > 10:
+                for old_backup in backup_files[:-10]:
+                    os.remove(os.path.join(backup_dir, old_backup))
+            return True
+    except Exception as e:
+        print(f"Backup creation failed: {e}")
+    return False
+
+def convert_dates_to_strings(df):
+    """Convert date columns to string format for safe storage"""
+    if df.empty:
+        return df
+        
+    df_copy = df.copy()
+    for col in df_copy.columns:
+        if pd.api.types.is_datetime64_any_dtype(df_copy[col]):
+            df_copy[col] = df_copy[col].dt.strftime('%Y-%m-%d')
+        elif 'Date' in col or 'Time' in col:
+            # Convert any date-like columns to string
+            df_copy[col] = df_copy[col].astype(str)
+    return df_copy
+
+def convert_strings_to_dates(df):
+    """Convert string dates back to datetime objects"""
+    if df.empty:
+        return df
+        
+    df_copy = df.copy()
+    for col in df_copy.columns:
+        if 'Date' in col and col != 'Transaction_ID':
+            try:
+                df_copy[col] = pd.to_datetime(df_copy[col], errors='coerce')
+            except:
+                pass
+    return df_copy
+
+def initialize_empty_data():
+    """Initialize empty DataFrames for all data types"""
+    st.session_state.transactions = pd.DataFrame(columns=[
+        'Date', 'Time', 'Type', 'Category', 'Model', 'Brand', 'Item', 
+        'Color', 'Storage', 'Quantity', 'Selling_Price', 'Cost_Price', 
+        'Profit', 'Paid_Amount', 'Left_Amount', 'Customer_Name',
+        'Phone', 'CNIC', 'Address', 'Warranty', 'Compatible_With',
+        'Transaction_ID', 'Status', 'Advance_Balance', 'IMEI'
+    ])
+    st.session_state.expenditures = pd.DataFrame(columns=[
+        'Date', 'Time', 'Category', 'Amount', 'Description'
+    ])
+    st.session_state.payments = pd.DataFrame(columns=[
+        'Date', 'Time', 'Customer_Name', 'Phone', 'CNIC', 
+        'Amount', 'Transaction_ID', 'Payment_Type', 'Notes', 'Is_Advance'
+    ])
+    st.session_state.customer_advances = pd.DataFrame(columns=[
+        'Customer_Name', 'Phone', 'CNIC', 'Advance_Balance'
+    ])
+
+def load_data():
+    """Load data from persistent storage with multiple fallback methods"""
+    try:
+        # METHOD 1: Try to load from main data file
+        if os.path.exists('mobile_master_data.pkl'):
+            with open('mobile_master_data.pkl', 'rb') as f:
+                data = pickle.load(f)
+            
+            # Convert string dates back to datetime objects
+            if 'transactions' in data and not data['transactions'].empty:
+                data['transactions'] = convert_strings_to_dates(data['transactions'])
+            if 'expenditures' in data and not data['expenditures'].empty:
+                data['expenditures'] = convert_strings_to_dates(data['expenditures'])
+            if 'payments' in data and not data['payments'].empty:
+                data['payments'] = convert_strings_to_dates(data['payments'])
+            
+            st.session_state.transactions = data.get('transactions', pd.DataFrame(columns=[
+                'Date', 'Time', 'Type', 'Category', 'Model', 'Brand', 'Item', 
+                'Color', 'Storage', 'Quantity', 'Selling_Price', 'Cost_Price', 
+                'Profit', 'Paid_Amount', 'Left_Amount', 'Customer_Name',
+                'Phone', 'CNIC', 'Address', 'Warranty', 'Compatible_With',
+                'Transaction_ID', 'Status', 'Advance_Balance', 'IMEI'
+            ]))
+            st.session_state.expenditures = data.get('expenditures', pd.DataFrame(columns=[
+                'Date', 'Time', 'Category', 'Amount', 'Description'
+            ]))
+            st.session_state.payments = data.get('payments', pd.DataFrame(columns=[
+                'Date', 'Time', 'Customer_Name', 'Phone', 'CNIC', 
+                'Amount', 'Transaction_ID', 'Payment_Type', 'Notes', 'Is_Advance'
+            ]))
+            st.session_state.customer_advances = data.get('customer_advances', pd.DataFrame(columns=[
+                'Customer_Name', 'Phone', 'CNIC', 'Advance_Balance'
+            ]))
+            
+            print("✅ Data loaded successfully from main file")
+            return
+            
+        # METHOD 2: Try to load from most recent backup
+        backup_dir = "backups"
+        if os.path.exists(backup_dir):
+            backup_files = sorted([f for f in os.listdir(backup_dir) if f.startswith('backup_mobile_data_')])
+            if backup_files:
+                latest_backup = os.path.join(backup_dir, backup_files[-1])
+                with open(latest_backup, 'rb') as f:
+                    data = pickle.load(f)
+                
+                # Convert string dates back to datetime objects
+                if 'transactions' in data and not data['transactions'].empty:
+                    data['transactions'] = convert_strings_to_dates(data['transactions'])
+                if 'expenditures' in data and not data['expenditures'].empty:
+                    data['expenditures'] = convert_strings_to_dates(data['expenditures'])
+                if 'payments' in data and not data['payments'].empty:
+                    data['payments'] = convert_strings_to_dates(data['payments'])
+                
+                st.session_state.transactions = data.get('transactions', pd.DataFrame())
+                st.session_state.expenditures = data.get('expenditures', pd.DataFrame())
+                st.session_state.payments = data.get('payments', pd.DataFrame())
+                st.session_state.customer_advances = data.get('customer_advances', pd.DataFrame())
+                
+                print("✅ Data loaded successfully from backup")
+                # Restore the backup to main file
+                save_data()
+                return
+                
+    except Exception as e:
+        print(f"❌ Error loading data: {e}")
+    
+    # METHOD 3: Initialize empty data if all else fails
+    print("⚠️ Initializing empty data")
+    initialize_empty_data()
+
+def save_data():
+    """Save data to persistent storage with backup creation"""
+    try:
+        # Convert dates to strings for safe storage
+        transactions_to_save = convert_dates_to_strings(st.session_state.transactions) if not st.session_state.transactions.empty else st.session_state.transactions
+        expenditures_to_save = convert_dates_to_strings(st.session_state.expenditures) if not st.session_state.expenditures.empty else st.session_state.expenditures
+        payments_to_save = convert_dates_to_strings(st.session_state.payments) if not st.session_state.payments.empty else st.session_state.payments
+        
+        # Save all data to file
+        data = {
+            'transactions': transactions_to_save,
+            'expenditures': expenditures_to_save,
+            'payments': payments_to_save,
+            'customer_advances': st.session_state.customer_advances
+        }
+        
+        with open('mobile_master_data.pkl', 'wb') as f:
+            pickle.dump(data, f)
+            
+        # Create a backup
+        create_backup()
+        
+        print("✅ Data saved successfully")
+        return True
+            
+    except Exception as e:
+        print(f"❌ Error saving data: {e}")
+        st.error(f"Error saving data: {e}")
+        return False
+
+def export_data_to_csv():
+    """Export all data to CSV files as an additional backup"""
+    try:
+        export_dir = "data_exports"
+        os.makedirs(export_dir, exist_ok=True)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        
+        if not st.session_state.transactions.empty:
+            st.session_state.transactions.to_csv(f"{export_dir}/transactions_{timestamp}.csv", index=False)
+        if not st.session_state.expenditures.empty:
+            st.session_state.expenditures.to_csv(f"{export_dir}/expenditures_{timestamp}.csv", index=False)
+        if not st.session_state.payments.empty:
+            st.session_state.payments.to_csv(f"{export_dir}/payments_{timestamp}.csv", index=False)
+        if not st.session_state.customer_advances.empty:
+            st.session_state.customer_advances.to_csv(f"{export_dir}/customer_advances_{timestamp}.csv", index=False)
+            
+        print("✅ Data exported to CSV successfully")
+        return True
+    except Exception as e:
+        print(f"❌ Error exporting data to CSV: {e}")
+        return False
+
+# ==============================
+# DATA RECOVERY AND MAINTENANCE FUNCTIONS
+# ==============================
+
+def check_data_health():
+    """Check the health of the data and report any issues"""
+    issues = []
+    
+    # Check if dataframes exist in session state
+    required_dfs = ['transactions', 'expenditures', 'payments', 'customer_advances']
+    for df_name in required_dfs:
+        if df_name not in st.session_state:
+            issues.append(f"Missing dataframe: {df_name}")
+            # Initialize missing dataframe
+            initialize_empty_data()
+    
+    # Check for data file existence
+    if not os.path.exists('mobile_master_data.pkl'):
+        issues.append("Main data file not found")
+    
+    # Check backup directory
+    if not os.path.exists('backups'):
+        issues.append("Backup directory not found")
+    
+    return issues
+
+def recover_data():
+    """Attempt to recover data from available sources"""
+    st.info("🔄 Attempting data recovery...")
+    
+    # Try to load data with enhanced method
+    load_data()
+    
+    # Check if we have data now
+    if not st.session_state.transactions.empty:
+        st.success(f"✅ Data recovered successfully! Found {len(st.session_state.transactions)} transactions.")
+    else:
+        st.warning("⚠️ No existing data found. Starting with fresh database.")
+        initialize_empty_data()
+        save_data()
 
 # ==============================
 # SECURE AUTHENTICATION SYSTEM
@@ -635,119 +872,6 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
-
-# ==============================
-# DATA PERSISTENCE FUNCTIONS - FIXED VERSION
-# ==============================
-
-def convert_dates_to_strings(df):
-    """Convert date columns to string format for safe storage"""
-    df_copy = df.copy()
-    for col in df_copy.columns:
-        if 'Date' in col:
-            # Convert datetime to string format
-            df_copy[col] = df_copy[col].apply(
-                lambda x: x.strftime('%Y-%m-%d') if hasattr(x, 'strftime') else str(x)
-            )
-    return df_copy
-
-def convert_strings_to_dates(df):
-    """Convert string dates back to datetime objects"""
-    df_copy = df.copy()
-    for col in df_copy.columns:
-        if 'Date' in col:
-            # Convert string to datetime
-            df_copy[col] = pd.to_datetime(df_copy[col], errors='coerce')
-    return df_copy
-
-def load_data():
-    """Load data from persistent storage or initialize if not exists - FIXED VERSION"""
-    try:
-        # Try to load from file first
-        if os.path.exists('mobile_master_data.pkl'):
-            with open('mobile_master_data.pkl', 'rb') as f:
-                data = pickle.load(f)
-            
-            # Convert string dates back to datetime objects
-            if 'transactions' in data and not data['transactions'].empty:
-                data['transactions'] = convert_strings_to_dates(data['transactions'])
-            if 'expenditures' in data and not data['expenditures'].empty:
-                data['expenditures'] = convert_strings_to_dates(data['expenditures'])
-            if 'payments' in data and not data['payments'].empty:
-                data['payments'] = convert_strings_to_dates(data['payments'])
-            
-            st.session_state.transactions = data.get('transactions', pd.DataFrame(columns=[
-                'Date', 'Time', 'Type', 'Category', 'Model', 'Brand', 'Item', 
-                'Color', 'Storage', 'Quantity', 'Selling_Price', 'Cost_Price', 
-                'Profit', 'Paid_Amount', 'Left_Amount', 'Customer_Name',
-                'Phone', 'CNIC', 'Address', 'Warranty', 'Compatible_With',
-                'Transaction_ID', 'Status', 'Advance_Balance', 'IMEI'
-            ]))
-            st.session_state.expenditures = data.get('expenditures', pd.DataFrame(columns=[
-                'Date', 'Time', 'Category', 'Amount', 'Description'
-            ]))
-            st.session_state.payments = data.get('payments', pd.DataFrame(columns=[
-                'Date', 'Time', 'Customer_Name', 'Phone', 'CNIC', 
-                'Amount', 'Transaction_ID', 'Payment_Type', 'Notes', 'Is_Advance'
-            ]))
-            st.session_state.customer_advances = data.get('customer_advances', pd.DataFrame(columns=[
-                'Customer_Name', 'Phone', 'CNIC', 'Advance_Balance'
-            ]))
-        else:
-            # Initialize empty DataFrames
-            initialize_empty_data()
-            
-    except Exception as e:
-        st.error(f"Error loading data: {e}")
-        # Reset to empty DataFrames if there's an error
-        initialize_empty_data()
-
-def initialize_empty_data():
-    """Initialize empty DataFrames for all data types"""
-    st.session_state.transactions = pd.DataFrame(columns=[
-        'Date', 'Time', 'Type', 'Category', 'Model', 'Brand', 'Item', 
-        'Color', 'Storage', 'Quantity', 'Selling_Price', 'Cost_Price', 
-        'Profit', 'Paid_Amount', 'Left_Amount', 'Customer_Name',
-        'Phone', 'CNIC', 'Address', 'Warranty', 'Compatible_With',
-        'Transaction_ID', 'Status', 'Advance_Balance', 'IMEI'
-    ])
-    st.session_state.expenditures = pd.DataFrame(columns=[
-        'Date', 'Time', 'Category', 'Amount', 'Description'
-    ])
-    st.session_state.payments = pd.DataFrame(columns=[
-        'Date', 'Time', 'Customer_Name', 'Phone', 'CNIC', 
-        'Amount', 'Transaction_ID', 'Payment_Type', 'Notes', 'Is_Advance'
-    ])
-    st.session_state.customer_advances = pd.DataFrame(columns=[
-        'Customer_Name', 'Phone', 'CNIC', 'Advance_Balance'
-    ])
-
-def save_data():
-    """Save data to persistent storage - FIXED VERSION"""
-    try:
-        # Convert dates to strings for safe storage
-        transactions_to_save = convert_dates_to_strings(st.session_state.transactions) if not st.session_state.transactions.empty else st.session_state.transactions
-        expenditures_to_save = convert_dates_to_strings(st.session_state.expenditures) if not st.session_state.expenditures.empty else st.session_state.expenditures
-        payments_to_save = convert_dates_to_strings(st.session_state.payments) if not st.session_state.payments.empty else st.session_state.payments
-        
-        # Save all data to file
-        data = {
-            'transactions': transactions_to_save,
-            'expenditures': expenditures_to_save,
-            'payments': payments_to_save,
-            'customer_advances': st.session_state.customer_advances
-        }
-        
-        with open('mobile_master_data.pkl', 'wb') as f:
-            pickle.dump(data, f)
-            
-        # Also create a backup with timestamp
-        backup_filename = f"backup_mobile_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pkl"
-        with open(backup_filename, 'wb') as f:
-            pickle.dump(data, f)
-            
-    except Exception as e:
-        st.error(f"Error saving data: {e}")
 
 # ==============================
 # SHOP INFORMATION
@@ -2191,6 +2315,86 @@ def record_payment_form():
                 save_data()
 
 # ==============================
+# DATA MAINTENANCE PAGE
+# ==============================
+def data_maintenance_page():
+    """Page for data maintenance and recovery"""
+    st.markdown('<div class="section-title">🛠️ Data Maintenance & Backup</div>', unsafe_allow_html=True)
+    
+    st.subheader("Data Health Check")
+    issues = check_data_health()
+    if issues:
+        st.error("❌ Data Health Issues Found:")
+        for issue in issues:
+            st.write(f"- {issue}")
+    else:
+        st.success("✅ Data health is good!")
+    
+    # Display data statistics
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Transactions", len(st.session_state.transactions))
+    with col2:
+        st.metric("Expenditures", len(st.session_state.expenditures))
+    with col3:
+        st.metric("Payments", len(st.session_state.payments))
+    with col4:
+        st.metric("Customer Advances", len(st.session_state.customer_advances))
+    
+    st.markdown("---")
+    
+    st.subheader("Backup & Recovery")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("🔄 Recover Data", use_container_width=True):
+            recover_data()
+            
+        if st.button("💾 Create Backup Now", use_container_width=True):
+            if save_data():
+                st.success("✅ Backup created successfully!")
+            else:
+                st.error("❌ Backup failed!")
+            
+        if st.button("📤 Export to CSV", use_container_width=True):
+            if export_data_to_csv():
+                st.success("✅ Data exported to CSV successfully!")
+            else:
+                st.error("❌ CSV export failed!")
+    
+    with col2:
+        if st.button("🔍 Check Data Health", use_container_width=True):
+            issues = check_data_health()
+            if issues:
+                st.error(f"Found {len(issues)} issues")
+            else:
+                st.success("All systems go!")
+                
+        if st.button("🧹 Initialize Empty Data", use_container_width=True):
+            initialize_empty_data()
+            save_data()
+            st.success("✅ Fresh database initialized!")
+    
+    st.markdown("---")
+    
+    st.subheader("Data Import")
+    
+    uploaded_file = st.file_uploader("Import data from CSV", type=['csv'], key="data_import")
+    if uploaded_file is not None:
+        try:
+            # Read the uploaded CSV
+            imported_data = pd.read_csv(uploaded_file)
+            st.write("Preview of imported data:")
+            st.dataframe(imported_data.head())
+            
+            if st.button("Import This Data", key="import_confirm"):
+                # Here you would add logic to merge this data with existing data
+                st.success("✅ Data imported successfully! (Note: This is a placeholder - implement merge logic as needed)")
+        except Exception as e:
+            st.error(f"Error reading CSV file: {e}")
+
+# ==============================
 # MAIN PAGES
 # ==============================
 def dashboard_page():
@@ -2816,17 +3020,29 @@ def main():
         login_section()
         return
 
-    # Load data on app start
-    load_data()
+    # ENHANCED DATA LOADING WITH PROTECTION
+    if 'data_loaded' not in st.session_state:
+        st.session_state.data_loaded = False
+        
+    if not st.session_state.data_loaded:
+        with st.spinner("🔄 Loading your data securely..."):
+            load_data()
+            st.session_state.data_loaded = True
+            
+        # Verify data was loaded
+        if 'transactions' not in st.session_state:
+            st.error("❌ Data loading failed! Initializing empty database.")
+            initialize_empty_data()
+            save_data()
 
-    # Sidebar for navigation
+    # Sidebar for navigation - ADD DATA MAINTENANCE OPTION
     st.sidebar.markdown(f'<h1 style="text-align: center; color: #a442f5; font-size: 2rem;">AHSAN MOBILE SHOP</h1>', unsafe_allow_html=True)
     st.sidebar.markdown("---")
     
     # Display username and logout button
     st.sidebar.markdown(f'<p style="text-align: center; color: #8c8c8c;">Logged in as: <strong>{st.session_state.username}</strong></p>', unsafe_allow_html=True)
     
-    # Navigation buttons
+    # Navigation buttons - ADD DATA MAINTENANCE BUTTON
     if st.sidebar.button("📊 Dashboard"):
         st.session_state.page = "Dashboard"
     if st.sidebar.button("📱 Mobile Sale"):
@@ -2843,9 +3059,18 @@ def main():
         st.session_state.page = "Customer Balances"
     if st.sidebar.button("🗃️ View & Download Data"):
         st.session_state.page = "Data View"
+    if st.sidebar.button("🛠️ Data Maintenance"):  # NEW BUTTON
+        st.session_state.page = "Data Maintenance"
     
     st.sidebar.markdown("---")
-    st.sidebar.button("🔄 Reload Data", on_click=load_data, use_container_width=True)
+    
+    # Enhanced reload button with data protection
+    if st.sidebar.button("🔄 Reload & Backup Data", use_container_width=True):
+        with st.spinner("Reloading and backing up data..."):
+            load_data()
+            save_data()
+        st.success("✅ Data reloaded and backed up!")
+        st.rerun()
     
     # Logout button
     logout_button()
@@ -2856,6 +3081,17 @@ def main():
     
     # Display shop info
     shop_info_container()
+    
+    # Data protection warning if no data found
+    if (st.session_state.transactions.empty and 
+        st.session_state.expenditures.empty and 
+        st.session_state.payments.empty):
+        st.warning("""
+        ⚠️ **No existing data found.** 
+        - This is normal if you're using the app for the first time
+        - Your data will be automatically saved as you add transactions
+        - Use the 'Data Maintenance' page to import existing data or check data health
+        """)
     
     # Display the current page based on session state
     if st.session_state.page == "Dashboard":
@@ -2874,6 +3110,8 @@ def main():
         customer_balance_page()
     elif st.session_state.page == "Data View":
         data_view_page()
+    elif st.session_state.page == "Data Maintenance":  # NEW PAGE
+        data_maintenance_page()
         
     st.markdown("---")
     
@@ -2892,6 +3130,13 @@ def main():
             use_container_width=True
         )
         
+    # AUTO-SAVE REMINDER
+    st.markdown("""
+    <div style="background-color: #1a1a1a; padding: 1rem; border-radius: 0.5rem; border-left: 4px solid #4CAF50; margin-top: 1rem;">
+        <small>💡 <strong>Data Protection Active:</strong> Your data is automatically saved and backed up. Use the 'Data Maintenance' page for additional backups.</small>
+    </div>
+    """, unsafe_allow_html=True)
+    
     st.markdown('<div class="footer">Developed by DV>Z | A Project by AHSAN MOBILE SHOP AND EASYPAISA CENTER LORALAI</div>', unsafe_allow_html=True)
 
 
