@@ -1671,6 +1671,542 @@ def create_dashboard_report(period='daily'):
     return pdf.output(dest='S').encode('latin1')
 
 # ==============================
+# FORM FUNCTIONS - FIXED TO PRESERVE DATA ON VALIDATION ERRORS
+# ==============================
+def add_mobile_sale_form():
+    st.markdown('<div class="section-title">📱 Add New Mobile Sale</div>', unsafe_allow_html=True)
+    
+    # Initialize session state for receipt if not exists
+    if 'last_transaction' not in st.session_state:
+        st.session_state.last_transaction = None
+    
+    # Initialize form data in session state if not exists
+    if 'mobile_form_data' not in st.session_state:
+        st.session_state.mobile_form_data = {
+            'brand': '', 'model': '', 'color': '', 'storage': '', 'quantity': 1,
+            'warranty': '', 'imei': '', 'cost_price': 0, 'paid_amount': 0,
+            'selling_price': 0, 'customer_name': '', 'phone': '', 'cnic': '', 'address': ''
+        }
+    
+    with st.form("add_mobile_sale_form"):
+        col_dt, col_t = st.columns(2)
+        with col_dt:
+            sale_date = st.date_input("Date*", datetime.now().date(), key="mobile_date")
+        with col_t:
+            sale_time = st.time_input("Time*", datetime.now().time(), key="mobile_time")
+
+        st.subheader("Item Details")
+        col1, col2 = st.columns(2)
+        with col1:
+            brand = st.text_input("Brand*", value=st.session_state.mobile_form_data['brand'], key="mobile_brand", placeholder="e.g., Samsung, Apple")
+            color = st.text_input("Color*", value=st.session_state.mobile_form_data['color'], key="mobile_color", placeholder="e.g., Black, Gold")
+            quantity = st.number_input("Quantity*", min_value=1, step=1, value=st.session_state.mobile_form_data['quantity'], key="mobile_qty")
+        with col2:
+            model = st.text_input("Model*", value=st.session_state.mobile_form_data['model'], key="mobile_model", placeholder="e.g., S23 Ultra, iPhone 15")
+            storage = st.text_input("Storage*", value=st.session_state.mobile_form_data['storage'], key="mobile_storage", placeholder="e.g., 128GB, 256GB")
+            warranty = st.text_input("Warranty Details (Optional)", value=st.session_state.mobile_form_data['warranty'], key="mobile_warranty")
+        
+        # IMEI field
+        imei = st.text_input("IMEI Number (Optional)", value=st.session_state.mobile_form_data['imei'], key="mobile_imei", placeholder="Enter IMEI number(s)")
+        
+        st.subheader("Financial Details")
+        col3, col4 = st.columns(2)
+        with col3:
+            cost_price = st.number_input("Cost Price (PKR)*", min_value=0, value=st.session_state.mobile_form_data['cost_price'], key="mobile_cost_price")
+            paid_amount = st.number_input("Paid Amount (PKR)*", min_value=0, value=st.session_state.mobile_form_data['paid_amount'], key="mobile_paid")
+        with col4:
+            selling_price = st.number_input("Selling Price (PKR)*", min_value=0, value=st.session_state.mobile_form_data['selling_price'], key="mobile_sell_price")
+            
+        # Validation for cost price and selling price
+        if cost_price > 0 and selling_price > 0 and cost_price > selling_price:
+            st.warning("⚠️ Cost price is higher than selling price. This will result in a loss.")
+            
+        if paid_amount > (selling_price * quantity):
+            st.error("❌ Paid amount cannot be greater than total selling price.")
+            
+        st.subheader("Customer Details")
+        customer_name = st.text_input("Customer Name*", value=st.session_state.mobile_form_data['customer_name'], key="mobile_customer", placeholder="Full name")
+        phone = st.text_input("Phone Number*", value=st.session_state.mobile_form_data['phone'], key="mobile_phone", placeholder="03XX-XXXXXXX")
+        cnic = st.text_input("CNIC (Optional)", value=st.session_state.mobile_form_data['cnic'], key="mobile_cnic", placeholder="XXXXX-XXXXXXX-X or any format")
+        address = st.text_area("Address (Optional)", value=st.session_state.mobile_form_data['address'], key="mobile_address", placeholder="Customer address")
+        
+        submitted = st.form_submit_button("💾 Save Mobile Sale", use_container_width=True)
+        if submitted:
+            # Store form data in session state
+            st.session_state.mobile_form_data = {
+                'brand': brand, 'model': model, 'color': color, 'storage': storage, 'quantity': quantity,
+                'warranty': warranty, 'imei': imei, 'cost_price': cost_price, 'paid_amount': paid_amount,
+                'selling_price': selling_price, 'customer_name': customer_name, 'phone': phone, 'cnic': cnic, 'address': address
+            }
+            
+            # Validate inputs
+            if not all([brand, model, color, storage, customer_name, phone, selling_price > 0]):
+                st.error("Please fill all required fields (marked with *). Selling Price must be greater than 0.")
+            elif not validate_phone(phone):
+                st.error("Please enter a valid Pakistani phone number (e.g., 03001234567 or +923001234567)")
+            elif paid_amount > (selling_price * quantity):
+                st.error("Paid Amount cannot be greater than Total Selling Price.")
+            else:
+                # Format CNIC
+                cnic_valid, formatted_cnic = validate_cnic(cnic)
+                if not cnic_valid:
+                    st.error("Please enter a valid CNIC")
+                    return
+                
+                total_selling_price = selling_price * quantity
+                profit = total_selling_price - (cost_price * quantity)
+                left_amount = total_selling_price - paid_amount
+                transaction_id = generate_transaction_id()
+                
+                new_transaction = {
+                    'Date': sale_date,
+                    'Time': sale_time.strftime('%H:%M:%S'),
+                    'Type': 'Sale',
+                    'Category': 'Mobile',
+                    'Model': model,
+                    'Brand': brand,
+                    'Item': f"{brand} {model} ({color}, {storage})", # Combines into one field for clarity
+                    'Color': color,
+                    'Storage': storage,
+                    'Quantity': quantity,
+                    'Selling_Price': total_selling_price,
+                    'Cost_Price': cost_price,
+                    'Profit': profit,
+                    'Paid_Amount': paid_amount,
+                    'Left_Amount': left_amount,
+                    'Customer_Name': customer_name,
+                    'Phone': phone,
+                    'CNIC': formatted_cnic,
+                    'Address': address,
+                    'Warranty': warranty,
+                    'Compatible_With': '', # Not applicable for mobiles
+                    'Transaction_ID': transaction_id,
+                    'Status': 'Completed' if left_amount == 0 else 'Pending',
+                    'Advance_Balance': 0, # Not applicable for sales
+                    'IMEI': imei
+                }
+                
+                # Check for existing customer to update advance balance if paid more than due
+                customer_result = get_customer_balance(phone)
+                advance_applied = 0
+                
+                if customer_result['advance_balance'] > 0:
+                    if customer_result['advance_balance'] >= left_amount:
+                        advance_applied = left_amount
+                        left_amount = 0
+                    else:
+                        advance_applied = customer_result['advance_balance']
+                        left_amount -= advance_applied
+                    
+                    new_transaction['Left_Amount'] = left_amount
+                    new_transaction['Paid_Amount'] = paid_amount + advance_applied
+                    update_customer_advance(customer_name, phone, formatted_cnic, -advance_applied)
+
+                # Add the new transaction
+                new_row_df = pd.DataFrame([new_transaction])
+                st.session_state.transactions = pd.concat([st.session_state.transactions, new_row_df], ignore_index=True)
+                
+                # Save data and display success message
+                save_data()
+                st.success("✅ Mobile sale recorded successfully!")
+                
+                # Store the last transaction for receipt generation
+                st.session_state.last_transaction = new_transaction
+                
+                # Clear form data after successful submission
+                st.session_state.mobile_form_data = {
+                    'brand': '', 'model': '', 'color': '', 'storage': '', 'quantity': 1,
+                    'warranty': '', 'imei': '', 'cost_price': 0, 'paid_amount': 0,
+                    'selling_price': 0, 'customer_name': '', 'phone': '', 'cnic': '', 'address': ''
+                }
+
+def add_accessories_sale_form():
+    st.markdown('<div class="section-title">🎧 Add New Accessories Sale</div>', unsafe_allow_html=True)
+    
+    # Initialize session state for receipt if not exists
+    if 'last_transaction' not in st.session_state:
+        st.session_state.last_transaction = None
+
+    # Initialize form data in session state if not exists
+    if 'accessories_form_data' not in st.session_state:
+        st.session_state.accessories_form_data = {
+            'item_name': '', 'compatible_with': '', 'quantity': 1, 'brand': '', 'model': '',
+            'cost_price': 0, 'paid_amount': 0, 'selling_price': 0, 
+            'customer_name': '', 'phone': '', 'cnic': '', 'address': ''
+        }
+
+    with st.form("add_accessories_sale_form"):
+        col_dt, col_t = st.columns(2)
+        with col_dt:
+            sale_date = st.date_input("Date*", datetime.now().date(), key="acc_date")
+        with col_t:
+            sale_time = st.time_input("Time*", datetime.now().time(), key="acc_time")
+
+        st.subheader("Item Details")
+        col1, col2 = st.columns(2)
+        with col1:
+            item_name = st.text_input("Item Name*", value=st.session_state.accessories_form_data['item_name'], key="acc_item", placeholder="e.g., Screen Protector, Headphones")
+            compatible_with = st.text_input("Compatible With (Optional)", value=st.session_state.accessories_form_data['compatible_with'], key="acc_compatible", placeholder="e.g., iPhone 15, Samsung S23")
+            quantity = st.number_input("Quantity*", min_value=1, step=1, value=st.session_state.accessories_form_data['quantity'], key="acc_qty")
+        with col2:
+            brand = st.text_input("Brand (Optional)", value=st.session_state.accessories_form_data['brand'], key="acc_brand", placeholder="e.g., Anker, JBL")
+            model = st.text_input("Model (Optional)", value=st.session_state.accessories_form_data['model'], key="acc_model", placeholder="e.g., A2544, PureBass")
+            
+        st.subheader("Financial Details")
+        col3, col4 = st.columns(2)
+        with col3:
+            cost_price = st.number_input("Cost Price (PKR)*", min_value=0, value=st.session_state.accessories_form_data['cost_price'], key="acc_cost_price")
+            paid_amount = st.number_input("Paid Amount (PKR)*", min_value=0, value=st.session_state.accessories_form_data['paid_amount'], key="acc_paid")
+        with col4:
+            selling_price = st.number_input("Selling Price (PKR)*", min_value=0, value=st.session_state.accessories_form_data['selling_price'], key="acc_sell_price")
+            
+        # Validation for cost price and selling price
+        if cost_price > 0 and selling_price > 0 and cost_price > selling_price:
+            st.warning("⚠️ Cost price is higher than selling price. This will result in a loss.")
+        
+        st.subheader("Customer Details")
+        customer_name = st.text_input("Customer Name*", value=st.session_state.accessories_form_data['customer_name'], key="acc_customer", placeholder="Full name")
+        phone = st.text_input("Phone Number*", value=st.session_state.accessories_form_data['phone'], key="acc_phone", placeholder="03XX-XXXXXXX")
+        cnic = st.text_input("CNIC (Optional)", value=st.session_state.accessories_form_data['cnic'], key="acc_cnic", placeholder="XXXXX-XXXXXXX-X")
+        address = st.text_area("Address (Optional)", value=st.session_state.accessories_form_data['address'], key="acc_address")
+        
+        submitted = st.form_submit_button("💾 Save Accessories Sale", use_container_width=True)
+        if submitted:
+            # Store form data in session state
+            st.session_state.accessories_form_data = {
+                'item_name': item_name, 'compatible_with': compatible_with, 'quantity': quantity, 'brand': brand, 'model': model,
+                'cost_price': cost_price, 'paid_amount': paid_amount, 'selling_price': selling_price, 
+                'customer_name': customer_name, 'phone': phone, 'cnic': cnic, 'address': address
+            }
+            
+            # Validate inputs
+            if not all([item_name, customer_name, phone, selling_price > 0]):
+                st.error("Please fill all required fields (marked with *). Selling Price must be greater than 0.")
+            elif not validate_phone(phone):
+                st.error("Please enter a valid Pakistani phone number.")
+            elif paid_amount > (selling_price * quantity):
+                st.error("Paid Amount cannot be greater than Total Selling Price.")
+            else:
+                cnic_valid, formatted_cnic = validate_cnic(cnic)
+                if not cnic_valid:
+                    st.error("Please enter a valid CNIC")
+                    return
+                
+                total_selling_price = selling_price * quantity
+                profit = total_selling_price - (cost_price * quantity)
+                left_amount = total_selling_price - paid_amount
+                transaction_id = generate_transaction_id()
+                
+                new_transaction = {
+                    'Date': sale_date,
+                    'Time': sale_time.strftime('%H:%M:%S'),
+                    'Type': 'Sale',
+                    'Category': 'Accessories',
+                    'Model': model,
+                    'Brand': brand,
+                    'Item': item_name,
+                    'Color': '',
+                    'Storage': '',
+                    'Quantity': quantity,
+                    'Selling_Price': total_selling_price,
+                    'Cost_Price': cost_price,
+                    'Profit': profit,
+                    'Paid_Amount': paid_amount,
+                    'Left_Amount': left_amount,
+                    'Customer_Name': customer_name,
+                    'Phone': phone,
+                    'CNIC': formatted_cnic,
+                    'Address': address,
+                    'Warranty': '',
+                    'Compatible_With': compatible_with,
+                    'Transaction_ID': transaction_id,
+                    'Status': 'Completed' if left_amount == 0 else 'Pending',
+                    'Advance_Balance': 0,
+                    'IMEI': ''
+                }
+                
+                customer_result = get_customer_balance(phone)
+                advance_applied = 0
+                if customer_result['advance_balance'] > 0:
+                    if customer_result['advance_balance'] >= left_amount:
+                        advance_applied = left_amount
+                        left_amount = 0
+                    else:
+                        advance_applied = customer_result['advance_balance']
+                        left_amount -= advance_applied
+                    
+                    new_transaction['Left_Amount'] = left_amount
+                    new_transaction['Paid_Amount'] = paid_amount + advance_applied
+                    update_customer_advance(customer_name, phone, formatted_cnic, -advance_applied)
+
+                new_row_df = pd.DataFrame([new_transaction])
+                st.session_state.transactions = pd.concat([st.session_state.transactions, new_row_df], ignore_index=True)
+                save_data()
+                st.success("✅ Accessories sale recorded successfully!")
+                st.session_state.last_transaction = new_transaction
+                
+                # Clear form data after successful submission
+                st.session_state.accessories_form_data = {
+                    'item_name': '', 'compatible_with': '', 'quantity': 1, 'brand': '', 'model': '',
+                    'cost_price': 0, 'paid_amount': 0, 'selling_price': 0, 
+                    'customer_name': '', 'phone': '', 'cnic': '', 'address': ''
+                }
+
+def add_repair_form():
+    st.markdown('<div class="section-title">🔧 Add New Repair Service</div>', unsafe_allow_html=True)
+    
+    if 'last_transaction' not in st.session_state:
+        st.session_state.last_transaction = None
+
+    # Initialize form data in session state if not exists
+    if 'repair_form_data' not in st.session_state:
+        st.session_state.repair_form_data = {
+            'device_brand': '', 'device_model': '', 'service_description': '',
+            'service_cost': 0, 'paid_amount': 0, 'selling_price': 0,
+            'customer_name': '', 'phone': '', 'cnic': ''
+        }
+
+    with st.form("add_repair_form"):
+        col_dt, col_t = st.columns(2)
+        with col_dt:
+            repair_date = st.date_input("Date*", datetime.now().date(), key="repair_date")
+        with col_t:
+            repair_time = st.time_input("Time*", datetime.now().time(), key="repair_time")
+            
+        st.subheader("Service Details")
+        col1, col2 = st.columns(2)
+        with col1:
+            device_brand = st.text_input("Device Brand*", value=st.session_state.repair_form_data['device_brand'], key="repair_brand", placeholder="e.g., iPhone, Samsung")
+            service_description = st.text_area("Service Description*", value=st.session_state.repair_form_data['service_description'], key="repair_desc", placeholder="e.g., Screen replacement, battery repair")
+        with col2:
+            device_model = st.text_input("Device Model*", value=st.session_state.repair_form_data['device_model'], key="repair_model", placeholder="e.g., iPhone X, Samsung S20")
+            
+        st.subheader("Financial Details")
+        col3, col4 = st.columns(2)
+        with col3:
+            service_cost = st.number_input("Service Cost (PKR)*", min_value=0, value=st.session_state.repair_form_data['service_cost'], key="repair_cost")
+            paid_amount = st.number_input("Paid Amount (PKR)*", min_value=0, value=st.session_state.repair_form_data['paid_amount'], key="repair_paid")
+        with col4:
+            selling_price = st.number_input("Selling Price (PKR)*", min_value=0, value=st.session_state.repair_form_data['selling_price'], key="repair_sell_price")
+
+        if paid_amount > selling_price:
+            st.error("❌ Paid amount cannot be greater than Total Selling Price.")
+        
+        st.subheader("Customer Details")
+        customer_name = st.text_input("Customer Name*", value=st.session_state.repair_form_data['customer_name'], key="repair_customer", placeholder="Full name")
+        phone = st.text_input("Phone Number*", value=st.session_state.repair_form_data['phone'], key="repair_phone", placeholder="03XX-XXXXXXX")
+        cnic = st.text_input("CNIC (Optional)", value=st.session_state.repair_form_data['cnic'], key="repair_cnic", placeholder="XXXXX-XXXXXXX-X")
+        
+        submitted = st.form_submit_button("💾 Save Repair Service", use_container_width=True)
+        if submitted:
+            # Store form data in session state
+            st.session_state.repair_form_data = {
+                'device_brand': device_brand, 'device_model': device_model, 'service_description': service_description,
+                'service_cost': service_cost, 'paid_amount': paid_amount, 'selling_price': selling_price,
+                'customer_name': customer_name, 'phone': phone, 'cnic': cnic
+            }
+            
+            if not all([device_brand, device_model, service_description, customer_name, phone, selling_price > 0]):
+                st.error("Please fill all required fields (marked with *). Selling Price must be greater than 0.")
+            elif not validate_phone(phone):
+                st.error("Please enter a valid Pakistani phone number.")
+            elif paid_amount > selling_price:
+                st.error("Paid Amount cannot be greater than Total Selling Price.")
+            else:
+                cnic_valid, formatted_cnic = validate_cnic(cnic)
+                if not cnic_valid:
+                    st.error("Please enter a valid CNIC")
+                    return
+                
+                profit = selling_price - service_cost
+                left_amount = selling_price - paid_amount
+                transaction_id = generate_transaction_id()
+
+                new_transaction = {
+                    'Date': repair_date,
+                    'Time': repair_time.strftime('%H:%M:%S'),
+                    'Type': 'Service',
+                    'Category': 'Repair',
+                    'Model': device_model,
+                    'Brand': device_brand,
+                    'Item': service_description,
+                    'Color': '',
+                    'Storage': '',
+                    'Quantity': 1,
+                    'Selling_Price': selling_price,
+                    'Cost_Price': service_cost,
+                    'Profit': profit,
+                    'Paid_Amount': paid_amount,
+                    'Left_Amount': left_amount,
+                    'Customer_Name': customer_name,
+                    'Phone': phone,
+                    'CNIC': formatted_cnic,
+                    'Address': '',
+                    'Warranty': '',
+                    'Compatible_With': '',
+                    'Transaction_ID': transaction_id,
+                    'Status': 'Completed' if left_amount == 0 else 'Pending',
+                    'Advance_Balance': 0,
+                    'IMEI': ''
+                }
+                
+                customer_result = get_customer_balance(phone)
+                advance_applied = 0
+                if customer_result['advance_balance'] > 0:
+                    if customer_result['advance_balance'] >= left_amount:
+                        advance_applied = left_amount
+                        left_amount = 0
+                    else:
+                        advance_applied = customer_result['advance_balance']
+                        left_amount -= advance_applied
+                    
+                    new_transaction['Left_Amount'] = left_amount
+                    new_transaction['Paid_Amount'] = paid_amount + advance_applied
+                    update_customer_advance(customer_name, phone, formatted_cnic, -advance_applied)
+
+                new_row_df = pd.DataFrame([new_transaction])
+                st.session_state.transactions = pd.concat([st.session_state.transactions, new_row_df], ignore_index=True)
+                save_data()
+                st.success("✅ Repair service recorded successfully!")
+                st.session_state.last_transaction = new_transaction
+                
+                # Clear form data after successful submission
+                st.session_state.repair_form_data = {
+                    'device_brand': '', 'device_model': '', 'service_description': '',
+                    'service_cost': 0, 'paid_amount': 0, 'selling_price': 0,
+                    'customer_name': '', 'phone': '', 'cnic': ''
+                }
+
+def add_expenditure_form():
+    st.markdown('<div class="section-title">💸 Add New Expenditure</div>', unsafe_allow_html=True)
+    
+    # Initialize form data in session state if not exists
+    if 'expenditure_form_data' not in st.session_state:
+        st.session_state.expenditure_form_data = {
+            'category': '', 'amount': 0.0, 'description': ''
+        }
+        
+    with st.form("add_expenditure_form"):
+        col_dt, col_t = st.columns(2)
+        with col_dt:
+            exp_date = st.date_input("Date*", datetime.now().date(), key="exp_date")
+        with col_t:
+            exp_time = st.time_input("Time*", datetime.now().time(), key="exp_time")
+            
+        exp_category = st.text_input("Category*", value=st.session_state.expenditure_form_data['category'], placeholder="e.g., Rent, Utilities, Salary", key="exp_cat")
+        exp_amount = st.number_input("Amount (PKR)*", min_value=0.0, value=st.session_state.expenditure_form_data['amount'], key="exp_amount")
+        exp_description = st.text_area("Description*", value=st.session_state.expenditure_form_data['description'], key="exp_desc")
+        
+        submitted = st.form_submit_button("💾 Save Expenditure", use_container_width=True)
+        if submitted:
+            # Store form data in session state
+            st.session_state.expenditure_form_data = {
+                'category': exp_category, 'amount': exp_amount, 'description': exp_description
+            }
+            
+            if not all([exp_category, exp_amount > 0, exp_description]):
+                st.error("Please fill all required fields (marked with *). Amount must be greater than 0.")
+            else:
+                new_expenditure = {
+                    'Date': exp_date,
+                    'Time': exp_time.strftime('%H:%M:%S'),
+                    'Category': exp_category,
+                    'Amount': exp_amount,
+                    'Description': exp_description
+                }
+                
+                new_row_df = pd.DataFrame([new_expenditure])
+                st.session_state.expenditures = pd.concat([st.session_state.expenditures, new_row_df], ignore_index=True)
+                save_data()
+                st.success("✅ Expenditure recorded successfully!")
+                
+                # Clear form data after successful submission
+                st.session_state.expenditure_form_data = {
+                    'category': '', 'amount': 0.0, 'description': ''
+                }
+
+def record_payment_form():
+    st.markdown('<div class="section-title">💰 Record Customer Payment / Advance</div>', unsafe_allow_html=True)
+    
+    # Initialize form data in session state if not exists
+    if 'payment_form_data' not in st.session_state:
+        st.session_state.payment_form_data = {
+            'customer_name': '', 'phone': '', 'cnic': '', 'payment_amount': 0,
+            'payment_type': 'Cash', 'is_advance': False, 'notes': ''
+        }
+        
+    with st.form("record_payment_form"):
+        col_dt, col_t = st.columns(2)
+        with col_dt:
+            pay_date = st.date_input("Date*", datetime.now().date(), key="pay_date")
+        with col_t:
+            pay_time = st.time_input("Time*", datetime.now().time(), key="pay_time")
+            
+        customer_name = st.text_input("Customer Name*", value=st.session_state.payment_form_data['customer_name'], placeholder="Full name", key="pay_customer")
+        phone = st.text_input("Phone Number*", value=st.session_state.payment_form_data['phone'], placeholder="03XX-XXXXXXX", key="pay_phone")
+        cnic = st.text_input("CNIC (Optional)", value=st.session_state.payment_form_data['cnic'], key="pay_cnic", placeholder="XXXXX-XXXXXXX-X")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            payment_amount = st.number_input("Amount Paid (PKR)*", min_value=0, value=st.session_state.payment_form_data['payment_amount'], key="pay_amount")
+        with col2:
+            payment_type = st.selectbox("Payment Type*", ['Cash', 'Bank Transfer', 'Online Payment'], 
+                                       index=['Cash', 'Bank Transfer', 'Online Payment'].index(st.session_state.payment_form_data['payment_type']), 
+                                       key="pay_type")
+
+        is_advance = st.checkbox("This is a customer advance (not tied to a specific transaction)", value=st.session_state.payment_form_data['is_advance'], key="pay_advance")
+        
+        notes = st.text_area("Notes (Optional)", value=st.session_state.payment_form_data['notes'], key="pay_notes")
+        
+        submitted = st.form_submit_button("💾 Record Payment", use_container_width=True)
+        if submitted:
+            # Store form data in session state
+            st.session_state.payment_form_data = {
+                'customer_name': customer_name, 'phone': phone, 'cnic': cnic, 'payment_amount': payment_amount,
+                'payment_type': payment_type, 'is_advance': is_advance, 'notes': notes
+            }
+            
+            if not all([customer_name, phone, payment_amount > 0]):
+                st.error("Please fill all required fields. Amount must be greater than 0.")
+            elif not validate_phone(phone):
+                st.error("Please enter a valid Pakistani phone number.")
+            else:
+                cnic_valid, formatted_cnic = validate_cnic(cnic)
+                if not cnic_valid:
+                    st.error("Please enter a valid CNIC")
+                    return
+                    
+                if is_advance:
+                    # Update customer advance balance
+                    update_customer_advance(customer_name, phone, formatted_cnic, payment_amount)
+                    st.success(f"✅ Advance of {payment_amount:,.0f} PKR recorded for {customer_name}.")
+                else:
+                    # Record as a payment towards a transaction
+                    payment_data = {
+                        'Date': pay_date,
+                        'Time': pay_time.strftime('%H:%M:%S'),
+                        'Customer_Name': customer_name,
+                        'Phone': phone,
+                        'CNIC': formatted_cnic,
+                        'Amount': payment_amount,
+                        'Transaction_ID': '', # To be updated later if needed
+                        'Payment_Type': payment_type,
+                        'Notes': notes,
+                        'Is_Advance': is_advance
+                    }
+                    new_row_df = pd.DataFrame([payment_data])
+                    st.session_state.payments = pd.concat([st.session_state.payments, new_row_df], ignore_index=True)
+                    st.success(f"✅ Payment of {payment_amount:,.0f} PKR recorded for {customer_name}.")
+                
+                save_data()
+                
+                # Clear form data after successful submission
+                st.session_state.payment_form_data = {
+                    'customer_name': '', 'phone': '', 'cnic': '', 'payment_amount': 0,
+                    'payment_type': 'Cash', 'is_advance': False, 'notes': ''
+                }
+
+# ==============================
 # EDIT/DELETE FUNCTIONS
 # ==============================
 def edit_transaction(index):
@@ -1881,518 +2417,6 @@ def delete_payment(index):
     st.session_state.deleting_pay = None
     time.sleep(1)
     st.rerun()
-
-# ==============================
-# FORM FUNCTIONS
-# ==============================
-def add_mobile_sale_form():
-    st.markdown('<div class="section-title">📱 Add New Mobile Sale</div>', unsafe_allow_html=True)
-    
-    # Initialize session state for receipt if not exists
-    if 'last_transaction' not in st.session_state:
-        st.session_state.last_transaction = None
-    
-    with st.form("add_mobile_sale_form", clear_on_submit=True):
-        col_dt, col_t = st.columns(2)
-        with col_dt:
-            sale_date = st.date_input("Date*", datetime.now().date(), key="mobile_date")
-        with col_t:
-            sale_time = st.time_input("Time*", datetime.now().time(), key="mobile_time")
-
-        st.subheader("Item Details")
-        col1, col2 = st.columns(2)
-        with col1:
-            brand = st.text_input("Brand*", key="mobile_brand", placeholder="e.g., Samsung, Apple")
-            color = st.text_input("Color*", key="mobile_color", placeholder="e.g., Black, Gold")
-            quantity = st.number_input("Quantity*", min_value=1, step=1, key="mobile_qty", value=1)
-        with col2:
-            model = st.text_input("Model*", key="mobile_model", placeholder="e.g., S23 Ultra, iPhone 15")
-            storage = st.text_input("Storage*", key="mobile_storage", placeholder="e.g., 128GB, 256GB")
-            warranty = st.text_input("Warranty Details (Optional)", key="mobile_warranty")
-        
-        # IMEI field
-        imei = st.text_input("IMEI Number (Optional)", key="mobile_imei", placeholder="Enter IMEI number(s)")
-        
-        st.subheader("Financial Details")
-        col3, col4 = st.columns(2)
-        with col3:
-            cost_price = st.number_input("Cost Price (PKR)*", min_value=0, key="mobile_cost_price", value=0)
-            paid_amount = st.number_input("Paid Amount (PKR)*", min_value=0, key="mobile_paid", value=0)
-        with col4:
-            selling_price = st.number_input("Selling Price (PKR)*", min_value=0, key="mobile_sell_price", value=0)
-            
-        # Validation for cost price and selling price
-        if cost_price > 0 and selling_price > 0 and cost_price > selling_price:
-            st.warning("⚠️ Cost price is higher than selling price. This will result in a loss.")
-            
-        if paid_amount > (selling_price * quantity):
-            st.error("❌ Paid amount cannot be greater than total selling price.")
-            
-        st.subheader("Customer Details")
-        customer_name = st.text_input("Customer Name*", key="mobile_customer", placeholder="Full name")
-        phone = st.text_input("Phone Number*", key="mobile_phone", placeholder="03XX-XXXXXXX")
-        cnic = st.text_input("CNIC (Optional)", key="mobile_cnic", placeholder="XXXXX-XXXXXXX-X or any format")
-        address = st.text_area("Address (Optional)", key="mobile_address", placeholder="Customer address")
-        
-        submitted = st.form_submit_button("💾 Save Mobile Sale", use_container_width=True)
-        if submitted:
-            # Validate inputs
-            if not all([brand, model, color, storage, customer_name, phone, selling_price > 0]):
-                st.error("Please fill all required fields (marked with *). Selling Price must be greater than 0.")
-            elif not validate_phone(phone):
-                st.error("Please enter a valid Pakistani phone number (e.g., 03001234567 or +923001234567)")
-            elif paid_amount > (selling_price * quantity):
-                st.error("Paid Amount cannot be greater than Total Selling Price.")
-            else:
-                # Format CNIC
-                cnic_valid, formatted_cnic = validate_cnic(cnic)
-                if not cnic_valid:
-                    st.error("Please enter a valid CNIC")
-                    return
-                
-                total_selling_price = selling_price * quantity
-                profit = total_selling_price - (cost_price * quantity)
-                left_amount = total_selling_price - paid_amount
-                transaction_id = generate_transaction_id()
-                
-                new_transaction = {
-                    'Date': sale_date,
-                    'Time': sale_time.strftime('%H:%M:%S'),
-                    'Type': 'Sale',
-                    'Category': 'Mobile',
-                    'Model': model,
-                    'Brand': brand,
-                    'Item': f"{brand} {model} ({color}, {storage})", # Combines into one field for clarity
-                    'Color': color,
-                    'Storage': storage,
-                    'Quantity': quantity,
-                    'Selling_Price': total_selling_price,
-                    'Cost_Price': cost_price,
-                    'Profit': profit,
-                    'Paid_Amount': paid_amount,
-                    'Left_Amount': left_amount,
-                    'Customer_Name': customer_name,
-                    'Phone': phone,
-                    'CNIC': formatted_cnic,
-                    'Address': address,
-                    'Warranty': warranty,
-                    'Compatible_With': '', # Not applicable for mobiles
-                    'Transaction_ID': transaction_id,
-                    'Status': 'Completed' if left_amount == 0 else 'Pending',
-                    'Advance_Balance': 0, # Not applicable for sales
-                    'IMEI': imei
-                }
-                
-                # Check for existing customer to update advance balance if paid more than due
-                customer_result = get_customer_balance(phone)
-                advance_applied = 0
-                
-                if customer_result['advance_balance'] > 0:
-                    if customer_result['advance_balance'] >= left_amount:
-                        advance_applied = left_amount
-                        left_amount = 0
-                    else:
-                        advance_applied = customer_result['advance_balance']
-                        left_amount -= advance_applied
-                    
-                    new_transaction['Left_Amount'] = left_amount
-                    new_transaction['Paid_Amount'] = paid_amount + advance_applied
-                    update_customer_advance(customer_name, phone, formatted_cnic, -advance_applied)
-
-                # Add the new transaction
-                new_row_df = pd.DataFrame([new_transaction])
-                st.session_state.transactions = pd.concat([st.session_state.transactions, new_row_df], ignore_index=True)
-                
-                # Save data and display success message
-                save_data()
-                st.success("✅ Mobile sale recorded successfully!")
-                
-                # Store the last transaction for receipt generation
-                st.session_state.last_transaction = new_transaction
-
-def add_accessories_sale_form():
-    st.markdown('<div class="section-title">🎧 Add New Accessories Sale</div>', unsafe_allow_html=True)
-    
-    # Initialize session state for receipt if not exists
-    if 'last_transaction' not in st.session_state:
-        st.session_state.last_transaction = None
-
-    with st.form("add_accessories_sale_form", clear_on_submit=True):
-        col_dt, col_t = st.columns(2)
-        with col_dt:
-            sale_date = st.date_input("Date*", datetime.now().date(), key="acc_date")
-        with col_t:
-            sale_time = st.time_input("Time*", datetime.now().time(), key="acc_time")
-
-        st.subheader("Item Details")
-        col1, col2 = st.columns(2)
-        with col1:
-            item_name = st.text_input("Item Name*", key="acc_item", placeholder="e.g., Screen Protector, Headphones")
-            compatible_with = st.text_input("Compatible With (Optional)", key="acc_compatible", placeholder="e.g., iPhone 15, Samsung S23")
-            quantity = st.number_input("Quantity*", min_value=1, step=1, key="acc_qty", value=1)
-        with col2:
-            brand = st.text_input("Brand (Optional)", key="acc_brand", placeholder="e.g., Anker, JBL")
-            model = st.text_input("Model (Optional)", key="acc_model", placeholder="e.g., A2544, PureBass")
-            
-        st.subheader("Financial Details")
-        col3, col4 = st.columns(2)
-        with col3:
-            cost_price = st.number_input("Cost Price (PKR)*", min_value=0, key="acc_cost_price", value=0)
-            paid_amount = st.number_input("Paid Amount (PKR)*", min_value=0, key="acc_paid", value=0)
-        with col4:
-            selling_price = st.number_input("Selling Price (PKR)*", min_value=0, key="acc_sell_price", value=0)
-            
-        # Validation for cost price and selling price
-        if cost_price > 0 and selling_price > 0 and cost_price > selling_price:
-            st.warning("⚠️ Cost price is higher than selling price. This will result in a loss.")
-        
-        st.subheader("Customer Details")
-        customer_name = st.text_input("Customer Name*", key="acc_customer", placeholder="Full name")
-        phone = st.text_input("Phone Number*", key="acc_phone", placeholder="03XX-XXXXXXX")
-        cnic = st.text_input("CNIC (Optional)", key="acc_cnic", placeholder="XXXXX-XXXXXXX-X")
-        address = st.text_area("Address (Optional)", key="acc_address")
-        
-        submitted = st.form_submit_button("💾 Save Accessories Sale", use_container_width=True)
-        if submitted:
-            # Validate inputs
-            if not all([item_name, customer_name, phone, selling_price > 0]):
-                st.error("Please fill all required fields (marked with *). Selling Price must be greater than 0.")
-            elif not validate_phone(phone):
-                st.error("Please enter a valid Pakistani phone number.")
-            elif paid_amount > (selling_price * quantity):
-                st.error("Paid Amount cannot be greater than Total Selling Price.")
-            else:
-                cnic_valid, formatted_cnic = validate_cnic(cnic)
-                if not cnic_valid:
-                    st.error("Please enter a valid CNIC")
-                    return
-                
-                total_selling_price = selling_price * quantity
-                profit = total_selling_price - (cost_price * quantity)
-                left_amount = total_selling_price - paid_amount
-                transaction_id = generate_transaction_id()
-                
-                new_transaction = {
-                    'Date': sale_date,
-                    'Time': sale_time.strftime('%H:%M:%S'),
-                    'Type': 'Sale',
-                    'Category': 'Accessories',
-                    'Model': model,
-                    'Brand': brand,
-                    'Item': item_name,
-                    'Color': '',
-                    'Storage': '',
-                    'Quantity': quantity,
-                    'Selling_Price': total_selling_price,
-                    'Cost_Price': cost_price,
-                    'Profit': profit,
-                    'Paid_Amount': paid_amount,
-                    'Left_Amount': left_amount,
-                    'Customer_Name': customer_name,
-                    'Phone': phone,
-                    'CNIC': formatted_cnic,
-                    'Address': address,
-                    'Warranty': '',
-                    'Compatible_With': compatible_with,
-                    'Transaction_ID': transaction_id,
-                    'Status': 'Completed' if left_amount == 0 else 'Pending',
-                    'Advance_Balance': 0,
-                    'IMEI': ''
-                }
-                
-                customer_result = get_customer_balance(phone)
-                advance_applied = 0
-                if customer_result['advance_balance'] > 0:
-                    if customer_result['advance_balance'] >= left_amount:
-                        advance_applied = left_amount
-                        left_amount = 0
-                    else:
-                        advance_applied = customer_result['advance_balance']
-                        left_amount -= advance_applied
-                    
-                    new_transaction['Left_Amount'] = left_amount
-                    new_transaction['Paid_Amount'] = paid_amount + advance_applied
-                    update_customer_advance(customer_name, phone, formatted_cnic, -advance_applied)
-
-                new_row_df = pd.DataFrame([new_transaction])
-                st.session_state.transactions = pd.concat([st.session_state.transactions, new_row_df], ignore_index=True)
-                save_data()
-                st.success("✅ Accessories sale recorded successfully!")
-                st.session_state.last_transaction = new_transaction
-
-def add_repair_form():
-    st.markdown('<div class="section-title">🔧 Add New Repair Service</div>', unsafe_allow_html=True)
-    
-    if 'last_transaction' not in st.session_state:
-        st.session_state.last_transaction = None
-
-    with st.form("add_repair_form", clear_on_submit=True):
-        col_dt, col_t = st.columns(2)
-        with col_dt:
-            repair_date = st.date_input("Date*", datetime.now().date(), key="repair_date")
-        with col_t:
-            repair_time = st.time_input("Time*", datetime.now().time(), key="repair_time")
-            
-        st.subheader("Service Details")
-        col1, col2 = st.columns(2)
-        with col1:
-            device_brand = st.text_input("Device Brand*", key="repair_brand", placeholder="e.g., iPhone, Samsung")
-            service_description = st.text_area("Service Description*", key="repair_desc", placeholder="e.g., Screen replacement, battery repair")
-        with col2:
-            device_model = st.text_input("Device Model*", key="repair_model", placeholder="e.g., iPhone X, Samsung S20")
-            
-        st.subheader("Financial Details")
-        col3, col4 = st.columns(2)
-        with col3:
-            service_cost = st.number_input("Service Cost (PKR)*", min_value=0, key="repair_cost", value=0)
-            paid_amount = st.number_input("Paid Amount (PKR)*", min_value=0, key="repair_paid", value=0)
-        with col4:
-            selling_price = st.number_input("Selling Price (PKR)*", min_value=0, key="repair_sell_price", value=0)  # FIXED: Added missing quote
-            
-        if paid_amount > selling_price:
-            st.error("❌ Paid amount cannot be greater than Total Selling Price.")
-        
-        st.subheader("Customer Details")
-        customer_name = st.text_input("Customer Name*", key="repair_customer", placeholder="Full name")
-        phone = st.text_input("Phone Number*", key="repair_phone", placeholder="03XX-XXXXXXX")
-        cnic = st.text_input("CNIC (Optional)", key="repair_cnic", placeholder="XXXXX-XXXXXXX-X")
-        
-        submitted = st.form_submit_button("💾 Save Repair Service", use_container_width=True)
-        if submitted:
-            if not all([device_brand, device_model, service_description, customer_name, phone, selling_price > 0]):
-                st.error("Please fill all required fields (marked with *). Selling Price must be greater than 0.")
-            elif not validate_phone(phone):
-                st.error("Please enter a valid Pakistani phone number.")
-            elif paid_amount > selling_price:
-                st.error("Paid Amount cannot be greater than Total Selling Price.")
-            else:
-                cnic_valid, formatted_cnic = validate_cnic(cnic)
-                if not cnic_valid:
-                    st.error("Please enter a valid CNIC")
-                    return
-                
-                profit = selling_price - service_cost
-                left_amount = selling_price - paid_amount
-                transaction_id = generate_transaction_id()
-
-                new_transaction = {
-                    'Date': repair_date,
-                    'Time': repair_time.strftime('%H:%M:%S'),
-                    'Type': 'Service',
-                    'Category': 'Repair',
-                    'Model': device_model,
-                    'Brand': device_brand,
-                    'Item': service_description,
-                    'Color': '',
-                    'Storage': '',
-                    'Quantity': 1,
-                    'Selling_Price': selling_price,
-                    'Cost_Price': service_cost,
-                    'Profit': profit,
-                    'Paid_Amount': paid_amount,
-                    'Left_Amount': left_amount,
-                    'Customer_Name': customer_name,
-                    'Phone': phone,
-                    'CNIC': formatted_cnic,
-                    'Address': '',
-                    'Warranty': '',
-                    'Compatible_With': '',
-                    'Transaction_ID': transaction_id,
-                    'Status': 'Completed' if left_amount == 0 else 'Pending',
-                    'Advance_Balance': 0,
-                    'IMEI': ''
-                }
-                
-                customer_result = get_customer_balance(phone)
-                advance_applied = 0
-                if customer_result['advance_balance'] > 0:
-                    if customer_result['advance_balance'] >= left_amount:
-                        advance_applied = left_amount
-                        left_amount = 0
-                    else:
-                        advance_applied = customer_result['advance_balance']
-                        left_amount -= advance_applied
-                    
-                    new_transaction['Left_Amount'] = left_amount
-                    new_transaction['Paid_Amount'] = paid_amount + advance_applied
-                    update_customer_advance(customer_name, phone, formatted_cnic, -advance_applied)
-
-                new_row_df = pd.DataFrame([new_transaction])
-                st.session_state.transactions = pd.concat([st.session_state.transactions, new_row_df], ignore_index=True)
-                save_data()
-                st.success("✅ Repair service recorded successfully!")
-                st.session_state.last_transaction = new_transaction
-
-def add_expenditure_form():
-    st.markdown('<div class="section-title">💸 Add New Expenditure</div>', unsafe_allow_html=True)
-    with st.form("add_expenditure_form", clear_on_submit=True):
-        col_dt, col_t = st.columns(2)
-        with col_dt:
-            exp_date = st.date_input("Date*", datetime.now().date(), key="exp_date")
-        with col_t:
-            exp_time = st.time_input("Time*", datetime.now().time(), key="exp_time")
-            
-        exp_category = st.text_input("Category*", placeholder="e.g., Rent, Utilities, Salary", key="exp_cat")
-        exp_amount = st.number_input("Amount (PKR)*", min_value=0.0, key="exp_amount", value=0.0)
-        exp_description = st.text_area("Description*", key="exp_desc")
-        
-        submitted = st.form_submit_button("💾 Save Expenditure", use_container_width=True)
-        if submitted:
-            if not all([exp_category, exp_amount > 0, exp_description]):
-                st.error("Please fill all required fields (marked with *). Amount must be greater than 0.")
-            else:
-                new_expenditure = {
-                    'Date': exp_date,
-                    'Time': exp_time.strftime('%H:%M:%S'),
-                    'Category': exp_category,
-                    'Amount': exp_amount,
-                    'Description': exp_description
-                }
-                
-                new_row_df = pd.DataFrame([new_expenditure])
-                st.session_state.expenditures = pd.concat([st.session_state.expenditures, new_row_df], ignore_index=True)
-                save_data()
-                st.success("✅ Expenditure recorded successfully!")
-
-def record_payment_form():
-    st.markdown('<div class="section-title">💰 Record Customer Payment / Advance</div>', unsafe_allow_html=True)
-    with st.form("record_payment_form", clear_on_submit=True):
-        col_dt, col_t = st.columns(2)
-        with col_dt:
-            pay_date = st.date_input("Date*", datetime.now().date(), key="pay_date")
-        with col_t:
-            pay_time = st.time_input("Time*", datetime.now().time(), key="pay_time")  # FIXED: Added missing quote
-            
-        customer_name = st.text_input("Customer Name*", placeholder="Full name", key="pay_customer")
-        phone = st.text_input("Phone Number*", placeholder="03XX-XXXXXXX", key="pay_phone")
-        cnic = st.text_input("CNIC (Optional)", key="pay_cnic", placeholder="XXXXX-XXXXXXX-X")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            payment_amount = st.number_input("Amount Paid (PKR)*", min_value=0, key="pay_amount")
-        with col2:
-            payment_type = st.selectbox("Payment Type*", ['Cash', 'Bank Transfer', 'Online Payment'], key="pay_type")
-
-        # Checkbox for advance payment
-        is_advance = st.checkbox("This is a customer advance (not tied to a specific transaction)")
-        
-        notes = st.text_area("Notes (Optional)", key="pay_notes")
-        
-        submitted = st.form_submit_button("💾 Record Payment", use_container_width=True)
-        if submitted:
-            if not all([customer_name, phone, payment_amount > 0]):
-                st.error("Please fill all required fields. Amount must be greater than 0.")
-            elif not validate_phone(phone):
-                st.error("Please enter a valid Pakistani phone number.")
-            else:
-                cnic_valid, formatted_cnic = validate_cnic(cnic)
-                if not cnic_valid:
-                    st.error("Please enter a valid CNIC")
-                    return
-                    
-                if is_advance:
-                    # Update customer advance balance
-                    update_customer_advance(customer_name, phone, formatted_cnic, payment_amount)
-                    st.success(f"✅ Advance of {payment_amount:,.0f} PKR recorded for {customer_name}.")
-                else:
-                    # Record as a payment towards a transaction
-                    payment_data = {
-                        'Date': pay_date,
-                        'Time': pay_time.strftime('%H:%M:%S'),
-                        'Customer_Name': customer_name,
-                        'Phone': phone,
-                        'CNIC': formatted_cnic,
-                        'Amount': payment_amount,
-                        'Transaction_ID': '', # To be updated later if needed
-                        'Payment_Type': payment_type,
-                        'Notes': notes,
-                        'Is_Advance': is_advance
-                    }
-                    new_row_df = pd.DataFrame([payment_data])
-                    st.session_state.payments = pd.concat([st.session_state.payments, new_row_df], ignore_index=True)
-                    st.success(f"✅ Payment of {payment_amount:,.0f} PKR recorded for {customer_name}.")
-                
-                save_data()
-
-# ==============================
-# DATA MAINTENANCE PAGE
-# ==============================
-def data_maintenance_page():
-    """Page for data maintenance and recovery"""
-    st.markdown('<div class="section-title">🛠️ Data Maintenance & Backup</div>', unsafe_allow_html=True)
-    
-    st.subheader("Data Health Check")
-    issues = check_data_health()
-    if issues:
-        st.error("❌ Data Health Issues Found:")
-        for issue in issues:
-            st.write(f"- {issue}")
-    else:
-        st.success("✅ Data health is good!")
-    
-    # Display data statistics
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("Transactions", len(st.session_state.transactions))
-    with col2:
-        st.metric("Expenditures", len(st.session_state.expenditures))
-    with col3:
-        st.metric("Payments", len(st.session_state.payments))
-    with col4:
-        st.metric("Customer Advances", len(st.session_state.customer_advances))
-    
-    st.markdown("---")
-    
-    st.subheader("Backup & Recovery")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if st.button("🔄 Recover Data", use_container_width=True):
-            recover_data()
-            
-        if st.button("💾 Create Backup Now", use_container_width=True):
-            if save_data():
-                st.success("✅ Backup created successfully!")
-            else:
-                st.error("❌ Backup failed!")
-            
-        if st.button("📤 Export to CSV", use_container_width=True):
-            if export_data_to_csv():
-                st.success("✅ Data exported to CSV successfully!")
-            else:
-                st.error("❌ CSV export failed!")
-    
-    with col2:
-        if st.button("🔍 Check Data Health", use_container_width=True):
-            issues = check_data_health()
-            if issues:
-                st.error(f"Found {len(issues)} issues")
-            else:
-                st.success("All systems go!")
-                
-        if st.button("🧹 Initialize Empty Data", use_container_width=True):
-            initialize_empty_data()
-            save_data()
-            st.success("✅ Fresh database initialized!")
-    
-    st.markdown("---")
-    
-    st.subheader("Data Import")
-    
-    uploaded_file = st.file_uploader("Import data from CSV", type=['csv'], key="data_import")
-    if uploaded_file is not None:
-        try:
-            # Read the uploaded CSV
-            imported_data = pd.read_csv(uploaded_file)
-            st.write("Preview of imported data:")
-            st.dataframe(imported_data.head())
-            
-            if st.button("Import This Data", key="import_confirm"):
-                # Here you would add logic to merge this data with existing data
-                st.success("✅ Data imported successfully! (Note: This is a placeholder - implement merge logic as needed)")
-        except Exception as e:
-            st.error(f"Error reading CSV file: {e}")
 
 # ==============================
 # MAIN PAGES
@@ -3015,6 +3039,35 @@ def main():
     if 'deleting_pay' not in st.session_state:
         st.session_state.deleting_pay = None
 
+    # Initialize form data states
+    if 'mobile_form_data' not in st.session_state:
+        st.session_state.mobile_form_data = {
+            'brand': '', 'model': '', 'color': '', 'storage': '', 'quantity': 1,
+            'warranty': '', 'imei': '', 'cost_price': 0, 'paid_amount': 0,
+            'selling_price': 0, 'customer_name': '', 'phone': '', 'cnic': '', 'address': ''
+        }
+    if 'accessories_form_data' not in st.session_state:
+        st.session_state.accessories_form_data = {
+            'item_name': '', 'compatible_with': '', 'quantity': 1, 'brand': '', 'model': '',
+            'cost_price': 0, 'paid_amount': 0, 'selling_price': 0, 
+            'customer_name': '', 'phone': '', 'cnic': '', 'address': ''
+        }
+    if 'repair_form_data' not in st.session_state:
+        st.session_state.repair_form_data = {
+            'device_brand': '', 'device_model': '', 'service_description': '',
+            'service_cost': 0, 'paid_amount': 0, 'selling_price': 0,
+            'customer_name': '', 'phone': '', 'cnic': ''
+        }
+    if 'expenditure_form_data' not in st.session_state:
+        st.session_state.expenditure_form_data = {
+            'category': '', 'amount': 0.0, 'description': ''
+        }
+    if 'payment_form_data' not in st.session_state:
+        st.session_state.payment_form_data = {
+            'customer_name': '', 'phone': '', 'cnic': '', 'payment_amount': 0,
+            'payment_type': 'Cash', 'is_advance': False, 'notes': ''
+        }
+
     # Check authentication
     if not st.session_state.authenticated:
         login_section()
@@ -3035,14 +3088,14 @@ def main():
             initialize_empty_data()
             save_data()
 
-    # Sidebar for navigation - ADD DATA MAINTENANCE OPTION
+    # Sidebar for navigation - REMOVED DATA MAINTENANCE OPTION
     st.sidebar.markdown(f'<h1 style="text-align: center; color: #a442f5; font-size: 2rem;">AHSAN MOBILE SHOP</h1>', unsafe_allow_html=True)
     st.sidebar.markdown("---")
     
     # Display username and logout button
     st.sidebar.markdown(f'<p style="text-align: center; color: #8c8c8c;">Logged in as: <strong>{st.session_state.username}</strong></p>', unsafe_allow_html=True)
     
-    # Navigation buttons - ADD DATA MAINTENANCE BUTTON
+    # Navigation buttons - REMOVED DATA MAINTENANCE BUTTON
     if st.sidebar.button("📊 Dashboard"):
         st.session_state.page = "Dashboard"
     if st.sidebar.button("📱 Mobile Sale"):
@@ -3059,8 +3112,6 @@ def main():
         st.session_state.page = "Customer Balances"
     if st.sidebar.button("🗃️ View & Download Data"):
         st.session_state.page = "Data View"
-    if st.sidebar.button("🛠️ Data Maintenance"):  # NEW BUTTON
-        st.session_state.page = "Data Maintenance"
     
     st.sidebar.markdown("---")
     
@@ -3090,7 +3141,7 @@ def main():
         ⚠️ **No existing data found.** 
         - This is normal if you're using the app for the first time
         - Your data will be automatically saved as you add transactions
-        - Use the 'Data Maintenance' page to import existing data or check data health
+        - Data is automatically backed up and protected
         """)
     
     # Display the current page based on session state
@@ -3110,8 +3161,6 @@ def main():
         customer_balance_page()
     elif st.session_state.page == "Data View":
         data_view_page()
-    elif st.session_state.page == "Data Maintenance":  # NEW PAGE
-        data_maintenance_page()
         
     st.markdown("---")
     
@@ -3133,7 +3182,7 @@ def main():
     # AUTO-SAVE REMINDER
     st.markdown("""
     <div style="background-color: #1a1a1a; padding: 1rem; border-radius: 0.5rem; border-left: 4px solid #4CAF50; margin-top: 1rem;">
-        <small>💡 <strong>Data Protection Active:</strong> Your data is automatically saved and backed up. Use the 'Data Maintenance' page for additional backups.</small>
+        <small>💡 <strong>Data Protection Active:</strong> Your data is automatically saved and backed up with every transaction.</small>
     </div>
     """, unsafe_allow_html=True)
     
